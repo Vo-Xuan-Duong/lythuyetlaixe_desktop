@@ -18,6 +18,8 @@
     "dataset:extract": "python tools/dataset/extract_pdf.py",
     "dataset:parse": "python tools/dataset/parse_questions.py",
     "dataset:resolve": "python tools/dataset/resolve_answers.py",
+    "dataset:review": "python tools/dataset/apply_answer_review.py",
+    "dataset:promote": "python tools/dataset/promote_dataset.py",
     "dataset:test": "python -m unittest discover -s tools/dataset/tests -p \"test_*.py\" -v"
   },
   "dependencies": {
