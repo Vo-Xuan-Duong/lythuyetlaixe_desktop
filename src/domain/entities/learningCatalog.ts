@@ -10,6 +10,7 @@ export type LearningQuestionFilter =
 export interface LearningCatalogQuery {
   categoryCode?: string;
   filter?: LearningQuestionFilter;
+  criticalOnly?: boolean;
   limit?: number;
   offset?: number;
 }
