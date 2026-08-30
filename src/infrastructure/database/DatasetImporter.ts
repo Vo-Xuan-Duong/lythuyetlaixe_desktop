@@ -54,7 +54,9 @@ const CATEGORIES = [
   { id: 6, code: "SITUATIONS", name: "Sa hình và xử lý tình huống", sortOrder: 6 },
 ] as const;
 
-const CATEGORY_IDS = new Map(CATEGORIES.map((category) => [category.code, category.id]));
+const CATEGORY_IDS: ReadonlyMap<string, number> = new Map(
+  CATEGORIES.map((category) => [category.code, category.id]),
+);
 
 export function validateDatasetForImport(dataset: ProductionDataset): void {
   if (dataset.dataset !== "VN_GPLX_600") {
