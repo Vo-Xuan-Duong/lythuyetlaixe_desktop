@@ -48,6 +48,10 @@ export class SqliteLearningCatalogRepository implements LearningCatalogRepositor
       where.push(`c.code = ${bind(query.categoryCode)}`);
     }
 
+    if (query.criticalOnly) {
+      where.push("q.is_critical = 1");
+    }
+
     switch (query.filter ?? "all") {
       case "unlearned":
         where.push("COALESCE(p.attempt_count, 0) = 0");
