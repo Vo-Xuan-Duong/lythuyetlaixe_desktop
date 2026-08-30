@@ -31,6 +31,7 @@ MIN_MARGIN = 0.05
 MAX_BASELINE_DISTANCE = 4.5
 MAX_HORIZONTAL_DELTA = 1.5
 MIN_SEGMENT_LENGTH = 4.0
+LINE_Y_TOLERANCE = 2.0
 
 
 @dataclass(frozen=True)
@@ -68,17 +69,24 @@ def _bbox_union(boxes: list[list[float]]) -> tuple[float, float, float, float]:
     )
 
 
+def _reading_order_key(line: TextLine) -> tuple[int, int, float, float]:
+    """Sort lines by page then visual row/column, independent of PDF block order."""
+    y0 = line.bbox[1]
+    x0 = line.bbox[0]
+    row = round(y0 / LINE_Y_TOLERANCE)
+    return (line.page, row, y0, x0)
+
+
 def build_lines(extracted: dict[str, Any]) -> list[TextLine]:
-    lines: list[TextLine] = []
-    order = 0
+    unsorted_lines: list[TextLine] = []
 
     for page in extracted.get("pages", []):
         grouped: dict[tuple[int, int], list[dict[str, Any]]] = {}
         for span in page.get("spans", []):
             grouped.setdefault((int(span["block"]), int(span["line"])), []).append(span)
 
-        for key in sorted(grouped):
-            spans = sorted(grouped[key], key=lambda item: (float(item["bbox"][0]), int(item.get("span", 0))))
+        for spans in grouped.values():
+            spans = sorted(spans, key=lambda item: (float(item["bbox"][0]), int(item.get("span", 0))))
             text = " ".join(str(span.get("text", "")).strip() for span in spans if str(span.get("text", "")).strip())
             boxes = [span["bbox"] for span in spans if span.get("bbox")]
             origins = [span.get("origin") for span in spans if span.get("origin")]
@@ -86,10 +94,27 @@ def build_lines(extracted: dict[str, Any]) -> list[TextLine]:
                 continue
             bbox = _bbox_union(boxes)
             baseline = max(float(origin[1]) for origin in origins) if origins else bbox[3]
-            lines.append(TextLine(page=int(page["page"]), order=order, text=text, bbox=bbox, baseline=baseline))
-            order += 1
+            unsorted_lines.append(
+                TextLine(
+                    page=int(page["page"]),
+                    order=-1,
+                    text=text,
+                    bbox=bbox,
+                    baseline=baseline,
+                )
+            )
 
-    return lines
+    ordered = sorted(unsorted_lines, key=_reading_order_key)
+    return [
+        TextLine(
+            page=line.page,
+            order=order,
+            text=line.text,
+            bbox=line.bbox,
+            baseline=line.baseline,
+        )
+        for order, line in enumerate(ordered)
+    ]
 
 
 def _append_segment(result: list[Segment], page: int, p0: list[float], p1: list[float]) -> None:
