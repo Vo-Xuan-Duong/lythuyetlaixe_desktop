@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import type { AppSection } from "../../app/navigation";
 import { demoCategories, demoSummary } from "../../data/demo";
 
@@ -7,6 +8,7 @@ interface DashboardPageProps {
 
 export function DashboardPage({ onNavigate }: DashboardPageProps) {
   const progress = Math.round((demoSummary.learnedQuestions / demoSummary.totalQuestions) * 100);
+  const progressStyle = { "--progress": `${progress}%` } as CSSProperties;
 
   return (
     <div className="page dashboard-page">
@@ -26,7 +28,7 @@ export function DashboardPage({ onNavigate }: DashboardPageProps) {
             </button>
           </div>
         </div>
-        <div className="progress-ring" style={{ "--progress": `${progress}%` } as React.CSSProperties}>
+        <div className="progress-ring" style={progressStyle}>
           <div>
             <strong>{progress}%</strong>
             <span>tiến độ</span>
