@@ -2,216 +2,153 @@
 
 > Repository: `Vo-Xuan-Duong/lythuyetlaixe_desktop`
 >
-> Mục tiêu: xây dựng ứng dụng học và thi thử bộ 600 câu lý thuyết lái xe Việt Nam, ưu tiên Windows Desktop trước và mở rộng Android sau bằng cùng kiến trúc Tauri 2.
+> Chiến lược: **Windows Desktop trước → Android sau**, cùng một kiến trúc Tauri 2 để tái sử dụng domain, data layer và phần lớn UI.
+>
+> Cập nhật trạng thái: **30/08/2026**.
 
 ## 1. Mục tiêu sản phẩm
 
-Ứng dụng phải giúp người học:
+Ứng dụng phải hỗ trợ:
 
-- Học toàn bộ 600 câu theo nhóm/chủ đề.
+- Học toàn bộ 600 câu theo chủ đề.
 - Học riêng 60 câu điểm liệt.
-- Làm bài thi thử theo cấu hình hạng giấy phép lái xe.
-- Lưu câu sai, câu đánh dấu và lịch sử học.
-- Theo dõi tiến độ và mức độ ghi nhớ.
-- Hoạt động offline ở phiên bản đầu tiên.
-- Có dữ liệu được version hóa để cập nhật khi bộ câu hỏi/quy định thay đổi.
-- Có thể phát triển tiếp lên Android mà không viết lại business logic.
+- Thi thử theo cấu hình hạng GPLX và thời gian hiệu lực của quy định.
+- Lưu câu sai, bookmark, lịch sử thi và tiến độ học.
+- Xếp hạng câu yếu và ôn tập lại.
+- Hoạt động offline ở bản đầu tiên.
+- Dataset có version, provenance và validator.
+- Mở rộng Android mà không viết lại business logic.
 
-## 2. Nguồn dữ liệu
+## 2. Source of truth
 
-Nguồn dữ liệu chuẩn phải lấy từ tài liệu chính thức của Cục Cảnh sát giao thông, không lấy dữ liệu của ứng dụng bên thứ ba làm source of truth.
+Dữ liệu production chỉ lấy từ tài liệu chính thức của **Cục Cảnh sát giao thông — Bộ Công an**.
 
-Bộ dữ liệu phải chứa tối thiểu:
+Nguồn hiện hành được ghi tại:
 
-- ID câu hỏi.
-- Nội dung câu hỏi.
-- Danh sách đáp án.
-- Đáp án đúng.
-- Hình ảnh nếu có.
-- Nhóm/chủ đề.
-- Cờ `isCritical` cho câu điểm liệt.
-- Hạng GPLX áp dụng.
-- Phiên bản dataset và ngày hiệu lực.
-- Nguồn tham chiếu.
+- `docs/DATA_SOURCE.md`
+- `data/source/source-manifest.json`
 
-Dữ liệu gốc được chuẩn hóa thành JSON và sau đó import vào SQLite.
+Nguyên tắc:
 
-## 3. Công nghệ
+1. Không lấy app/web bên thứ ba làm nguồn đáp án.
+2. Không dùng AI để đoán đáp án chính thức.
+3. Dataset chưa qua validator không được import vào production database.
+4. Mỗi dataset phải có `version`, `validFrom`, nguồn tài liệu và số lượng câu điểm liệt.
+5. Khi quy định thay đổi, tạo dataset version mới thay vì ghi đè lịch sử.
 
-### Desktop / Mobile shell
+## 3. Stack
+
+### Application shell
 
 - Tauri 2.
-- Rust cho native layer.
+- Rust.
 
 ### Frontend
 
 - React 19.
 - TypeScript.
 - Vite.
-
-### State và kiến trúc frontend
-
-Giai đoạn đầu ưu tiên React hooks/context nhỏ gọn, chưa thêm state library nếu chưa cần thiết. Khi state liên feature tăng mạnh mới đánh giá Zustand hoặc tương đương.
+- Responsive desktop/mobile từ đầu.
 
 ### Database
 
 - SQLite.
 - `@tauri-apps/plugin-sql`.
-- Migration chạy từ Tauri/Rust.
+- Migration quản lý từ Rust/Tauri.
 
 ### Package manager
 
 - pnpm.
 
-## 4. Nguyên tắc kiến trúc
-
-Không đặt business logic trực tiếp trong component React.
+## 4. Kiến trúc
 
 ```text
-UI (React)
+React UI
    |
-Application / Use cases
+Application / use cases
    |
 Domain
    |
-Repository interfaces
+Repository contracts
    |
 Infrastructure
-   |-- SQLite
+   |-- SQLite repositories
    |-- Tauri APIs
 ```
 
-Các phần phải tái sử dụng được khi chuyển Windows -> Android:
+Business logic không được đặt trực tiếp trong component React.
 
-- Domain models.
-- Question engine.
-- Exam engine.
-- Progress calculation.
+Các phần phải tái sử dụng khi chuyển Desktop → Android:
+
+- Question/Answer models.
+- ExamConfig và exam engine.
+- Progress/mastery logic.
 - Review logic.
-- Repository contracts.
+- Repository interfaces.
 - SQLite schema.
-- Dataset format.
+- Dataset contract.
 
-Chỉ các phần sau được phép phụ thuộc platform khi cần:
+Platform-specific chỉ nên gồm:
 
-- File system.
-- Window behavior.
-- Notifications.
-- Native permissions.
-- Mobile lifecycle.
+- native file/path;
+- window behavior;
+- notification;
+- permission;
+- mobile lifecycle.
 
-## 5. Cấu trúc thư mục mục tiêu
+## 5. Cấu trúc repository
 
 ```text
 .
 ├── KE_HOACH.md
 ├── README.md
 ├── package.json
+├── data/
+│   ├── source/
+│   └── processed/
+├── docs/
+│   └── DATA_SOURCE.md
 ├── src/
 │   ├── app/
 │   ├── components/
-│   ├── features/
-│   │   ├── dashboard/
-│   │   ├── learning/
-│   │   ├── critical-questions/
-│   │   ├── exam/
-│   │   ├── mistakes/
-│   │   ├── bookmarks/
-│   │   ├── progress/
-│   │   └── settings/
+│   ├── data/
 │   ├── domain/
 │   │   ├── entities/
 │   │   ├── repositories/
 │   │   └── services/
+│   ├── features/
 │   ├── infrastructure/
 │   │   ├── database/
 │   │   └── repositories/
-│   ├── data/
 │   └── styles/
 ├── src-tauri/
-│   ├── src/
 │   ├── capabilities/
+│   ├── src/
 │   ├── Cargo.toml
 │   └── tauri.conf.json
-├── tools/
-│   └── dataset/
-├── public/
-│   └── question-images/
-└── docs/
+└── tools/
+    └── dataset/
 ```
 
-## 6. Schema dữ liệu dự kiến
+## 6. Database schema
 
-### `dataset_metadata`
+Foundation migration hiện có các bảng:
 
-- `key`
-- `value`
+- `dataset_metadata`
+- `categories`
+- `questions`
+- `answers`
+- `question_license_types`
+- `user_progress`
+- `bookmarks`
+- `exam_sessions`
+- `exam_answers`
 
-### `categories`
-
-- `id`
-- `code`
-- `name`
-- `sort_order`
-
-### `questions`
-
-- `id`
-- `category_id`
-- `content`
-- `image_path`
-- `is_critical`
-- `source_version`
-
-### `answers`
-
-- `id`
-- `question_id`
-- `answer_key`
-- `content`
-- `is_correct`
-
-### `question_license_types`
-
-- `question_id`
-- `license_type`
-
-### `user_progress`
-
-- `question_id`
-- `attempt_count`
-- `correct_count`
-- `wrong_count`
-- `mastery`
-- `last_answered_at`
-- `next_review_at`
-
-### `bookmarks`
-
-- `question_id`
-- `created_at`
-
-### `exam_sessions`
-
-- `id`
-- `license_type`
-- `question_count`
-- `score`
-- `passed`
-- `critical_failed`
-- `started_at`
-- `completed_at`
-
-### `exam_answers`
-
-- `exam_session_id`
-- `question_id`
-- `selected_answer_key`
-- `is_correct`
+Schema thay đổi trong tương lai phải đi qua migration.
 
 ## 7. Dataset contract
 
-Dataset JSON phải có cấu trúc ổn định và độc lập UI.
+Dataset chuẩn hóa dự kiến:
 
 ```json
 {
@@ -226,6 +163,7 @@ Dataset JSON phải có cấu trúc ổn định và độc lập UI.
       "image": null,
       "critical": false,
       "licenses": ["B", "C1", "C"],
+      "sourceVersion": "2025.06",
       "answers": [
         { "key": "A", "content": "...", "correct": true },
         { "key": "B", "content": "...", "correct": false }
@@ -235,11 +173,21 @@ Dataset JSON phải có cấu trúc ổn định và độc lập UI.
 }
 ```
 
-Không hard-code đáp án, số câu thi, điểm đạt hoặc thời gian thi vào component.
+Validator phải kiểm tra tối thiểu:
+
+- đủ 600 câu;
+- ID 1 → 600 không thiếu/trùng;
+- đúng nhóm câu theo khoảng;
+- đủ 60 câu điểm liệt;
+- có đáp án đúng;
+- answer key không trùng;
+- license không rỗng;
+- source version có mặt;
+- image path tồn tại khi bật kiểm tra ảnh.
 
 ## 8. Exam engine
 
-Exam engine phải đọc cấu hình thay vì hard-code:
+Không hard-code cấu hình thi trong UI.
 
 ```ts
 interface ExamConfig {
@@ -254,187 +202,196 @@ interface ExamConfig {
 }
 ```
 
-Điều này cho phép thay đổi quy định mà không phải viết lại engine.
-
-## 9. Responsive và Android
-
-Desktop là mục tiêu triển khai đầu tiên nhưng frontend phải responsive từ đầu.
+## 9. Responsive / Android strategy
 
 Breakpoints tham khảo:
 
-- Mobile: `< 640px`.
-- Tablet: `640px - 1023px`.
-- Desktop: `>= 1024px`.
+- `< 640px`: mobile.
+- `640–1023px`: tablet.
+- `>= 1024px`: desktop.
 
-Không rải `platform === windows` trong business logic.
+Desktop dùng sidebar/không gian nhiều cột; mobile dùng bottom navigation/single column.
 
-Android phase sử dụng Tauri 2 mobile target và tái sử dụng frontend/domain/database hiện tại.
+Không rải check `platform === windows` trong domain/application layer.
 
-## 10. Roadmap
+---
 
-### Phase 0 — Khởi tạo dự án
+# 10. Roadmap và trạng thái
 
-- [x] Tạo kế hoạch phát triển.
-- [ ] Scaffold Tauri 2 + React + TypeScript + Vite.
-- [ ] Thiết lập pnpm scripts.
-- [ ] Thiết lập Rust/Tauri config.
-- [ ] Thiết lập capability tối thiểu.
-- [ ] Tạo README hướng dẫn chạy.
+## Phase 0 — Khởi tạo dự án
 
-**Definition of Done:** `pnpm install`, `pnpm tauri dev` có cấu trúc hợp lệ và app có thể khởi động trên Windows khi môi trường Tauri đã đủ prerequisite.
+- [x] Tạo `KE_HOACH.md`.
+- [x] Scaffold Tauri 2 + React + TypeScript + Vite.
+- [x] Thiết lập pnpm scripts.
+- [x] Thiết lập Rust/Tauri config.
+- [x] Capability tối thiểu.
+- [x] README hướng dẫn chạy.
+- [x] Workflow validation frontend/Rust.
 
-### Phase 1 — Foundation UI và domain
+**Trạng thái:** hoàn thành foundation.
 
-- [ ] Tạo App Shell desktop.
-- [ ] Sidebar/navigation.
-- [ ] Dashboard.
-- [ ] Domain model cho Question, Answer, Category, Progress.
-- [ ] Tạo dữ liệu demo để UI có thể phát triển độc lập với dataset chính thức.
-- [ ] Responsive shell cho hướng Android.
+## Phase 1 — UI và domain foundation
 
-**Definition of Done:** người dùng có thể điều hướng giữa Dashboard, Học 600 câu, Câu điểm liệt, Thi thử, Câu sai, Đánh dấu, Thống kê và Cài đặt.
+- [x] App Shell desktop.
+- [x] Sidebar/navigation desktop.
+- [x] Bottom navigation responsive cho mobile layout.
+- [x] Dashboard.
+- [x] Domain model cho Question/Answer/Category/Progress.
+- [x] Domain model cho ExamConfig.
+- [x] Dữ liệu demo để phát triển UI độc lập dataset production.
+- [x] Màn hình học câu hỏi demo + chọn/chấm đáp án.
+- [x] Route/state cho Điểm liệt, Thi thử, Câu sai, Bookmark, Thống kê, Cài đặt.
 
-### Phase 2 — SQLite foundation
+**Trạng thái:** foundation hoàn thành; feature thật sẽ được thay dần cho placeholder.
 
-- [ ] Tích hợp `@tauri-apps/plugin-sql`.
-- [ ] Tạo migrations.
-- [ ] Tạo repository layer.
-- [ ] Seed metadata/category.
-- [ ] Lưu progress.
-- [ ] Lưu bookmark.
-- [ ] Lưu lịch sử thi.
+## Phase 2 — SQLite foundation
 
-**Definition of Done:** đóng/mở app không làm mất dữ liệu học.
+- [x] Tích hợp `@tauri-apps/plugin-sql`.
+- [x] Tạo initial migration.
+- [x] Tạo repository contracts.
+- [x] Tạo `SqliteQuestionRepository`.
+- [x] Tạo `SqliteProgressRepository`.
+- [ ] Seed metadata/category từ dataset production.
+- [ ] Wire màn hình học vào QuestionRepository.
+- [ ] Wire progress/bookmark vào SQLite.
+- [ ] Lưu/lấy lịch sử thi qua repository riêng.
+- [ ] Integration tests cho migration/repository.
 
-### Phase 3 — Data pipeline 600 câu
+**Trạng thái:** đang thực hiện.
 
-- [ ] Lưu tài liệu nguồn và metadata nguồn.
-- [ ] Xây parser/extractor.
-- [ ] Extract text và hình ảnh.
-- [ ] Chuẩn hóa JSON.
-- [ ] Xác định đáp án đúng.
-- [ ] Đánh dấu 60 câu điểm liệt.
-- [ ] Validator đảm bảo đủ 600 câu.
-- [ ] Validator ảnh/đáp án/category.
-- [ ] Import dataset vào SQLite.
+## Phase 3 — Data pipeline 600 câu
 
-**Definition of Done:** dataset được validator xác nhận đủ 600 câu, ID không trùng/không thiếu và mỗi câu có đáp án đúng hợp lệ.
+- [x] Xác định nguồn chính thức.
+- [x] Tạo source manifest/version.
+- [x] Viết tài liệu provenance.
+- [x] Tạo validator foundation.
+- [ ] Tải/lưu bản nguồn dùng cho extraction.
+- [ ] Xây PDF text extractor.
+- [ ] Extract hình ảnh.
+- [ ] Parse câu hỏi/đáp án.
+- [ ] Xác định đáp án đúng từ tài liệu chính thức.
+- [ ] Map 60 câu điểm liệt.
+- [ ] Chuẩn hóa `questions.json`.
+- [ ] Chạy validator đủ 600 câu.
+- [ ] Manual verification các câu parser không chắc chắn.
+- [ ] Import dataset validated vào SQLite.
 
-### Phase 4 — Learning mode
+**Definition of Done:** validator xanh, đủ 600 ID, đủ 60 câu điểm liệt, đáp án/hình ảnh được kiểm chứng.
 
-- [ ] Danh sách chương/chủ đề.
-- [ ] Danh sách câu hỏi.
-- [ ] Màn hình làm từng câu.
-- [ ] Chấm đáp án.
-- [ ] Hiển thị giải thích nếu dataset có.
+## Phase 4 — Learning mode
+
+- [ ] Danh sách 6 chủ đề.
+- [ ] Danh sách câu theo chủ đề.
+- [ ] Màn hình câu hỏi dùng repository thật.
 - [ ] Previous/Next.
+- [ ] Chấm đáp án.
+- [ ] Explanation.
 - [ ] Bookmark.
-- [ ] Ghi nhận correct/wrong.
-- [ ] Bộ lọc chưa học/đã học/hay sai.
+- [ ] Lưu correct/wrong/progress.
+- [ ] Filter chưa học/đã học/hay sai.
 
-### Phase 5 — 60 câu điểm liệt
+## Phase 5 — 60 câu điểm liệt
 
 - [ ] Trang riêng.
 - [ ] Tiến độ riêng.
-- [ ] Chế độ luyện toàn bộ 60 câu.
-- [ ] Ôn câu điểm liệt làm sai.
+- [ ] Luyện toàn bộ 60 câu.
+- [ ] Ôn lại câu điểm liệt sai.
 
-### Phase 6 — Exam engine
+## Phase 6 — Exam engine
 
 - [ ] Exam config theo hạng GPLX và thời gian hiệu lực.
-- [ ] Sinh đề.
+- [ ] Question selection engine.
 - [ ] Timer.
 - [ ] Question navigator.
-- [ ] Submit.
-- [ ] Chấm điểm.
-- [ ] Fail khi sai câu điểm liệt nếu config yêu cầu.
+- [ ] Submit/chấm điểm.
+- [ ] Critical fail rule.
 - [ ] Result breakdown.
-- [ ] Lưu lịch sử.
+- [ ] Lưu exam history.
 
-### Phase 7 — Review engine
+## Phase 7 — Review engine
 
 - [ ] Trang câu sai.
-- [ ] Mức mastery.
+- [ ] Mastery calculation.
 - [ ] Weak-question ranking.
 - [ ] Review queue.
 - [ ] Spaced repetition cơ bản.
 
-### Phase 8 — Statistics
+## Phase 8 — Statistics
 
 - [ ] Tổng tiến độ.
-- [ ] Độ chính xác theo chủ đề.
+- [ ] Accuracy theo chủ đề.
 - [ ] Câu yếu nhất.
 - [ ] Lịch sử thi.
 - [ ] Pass rate.
 
-### Phase 9 — Desktop production
+## Phase 9 — Desktop production
 
 - [ ] App icon.
-- [ ] Installer Windows.
-- [ ] GitHub Actions CI.
-- [ ] GitHub Actions manual release.
-- [ ] Versioning.
+- [ ] Windows installer.
+- [ ] CI tối ưu với lockfile/cache.
+- [ ] GitHub Action manual release.
+- [ ] Versioning/release notes.
 - [ ] Update strategy.
-- [ ] Backup/export progress nếu cần.
-- [ ] Test trên Windows 10/11.
+- [ ] Test Windows 10/11.
 
-### Phase 10 — Android
+## Phase 10 — Android
 
-- [ ] Khởi tạo Android target Tauri 2.
-- [ ] Kiểm tra plugin compatibility.
-- [ ] Mobile navigation.
-- [ ] Touch targets.
-- [ ] Back navigation.
-- [ ] Android storage/path.
+- [ ] Cài Android Studio/JDK/SDK/NDK cho Tauri mobile.
+- [ ] `tauri android init`.
+- [ ] Xác minh SQLite/plugin behavior trên Android.
+- [ ] Mobile navigation hoàn chỉnh.
+- [ ] Touch/back navigation.
+- [ ] Storage/path Android.
 - [ ] Notification ôn tập.
 - [ ] APK debug.
 - [ ] AAB release.
-- [ ] Test nhiều kích thước màn hình.
+- [ ] Device/responsive testing.
 
-### Phase 11 — Cloud sync (tùy chọn)
+## Phase 11 — Cloud sync (tùy chọn)
 
-Chỉ triển khai sau khi offline app ổn định.
+Chỉ làm sau khi offline app production ổn định.
 
 - [ ] Account.
 - [ ] Sync progress.
-- [ ] Sync bookmarks.
+- [ ] Sync bookmark.
 - [ ] Dataset update service.
 - [ ] Conflict resolution.
+
+---
 
 ## 11. Testing strategy
 
 ### Unit tests
 
-Ưu tiên test:
+Ưu tiên:
 
-- Exam scoring.
-- Critical-question fail rule.
-- Question selection.
-- Progress calculation.
-- Mastery calculation.
-- Dataset validation.
+- exam scoring;
+- critical fail rule;
+- question selection;
+- progress/mastery;
+- dataset validation.
 
 ### Integration tests
 
-- SQLite repositories.
-- Migration.
-- Import dataset.
+- migration;
+- SQLite repositories;
+- dataset import.
 
 ### UI tests
 
-- Navigation.
-- Answer selection.
-- Exam submission.
-- Responsive layout.
+- navigation;
+- answer selection;
+- submit exam;
+- responsive layout.
 
 ## 12. Git workflow
 
 - `main`: phiên bản ổn định.
 - `feature/*`: tính năng.
 - `fix/*`: sửa lỗi.
-- PR trước khi merge các phase lớn.
+- Phase lớn phát triển qua PR.
 
-Commit nên theo Conventional Commits:
+Conventional Commits:
 
 ```text
 feat: add learning dashboard
@@ -443,20 +400,14 @@ chore: initialize tauri project
 docs: update development plan
 ```
 
-## 13. Quy tắc phát triển
+## 13. Trạng thái hiện tại
 
-1. Không đưa dữ liệu 600 câu chưa kiểm chứng vào production.
-2. Không dùng AI để tự suy đoán đáp án chính thức.
-3. Không hard-code quy định thi vào UI.
-4. Tất cả schema thay đổi qua migration.
-5. Dataset luôn có version.
-6. Feature phải chạy offline trước khi cân nhắc cloud.
-7. Desktop-first nhưng không tạo dependency khiến Android phải viết lại core.
-8. Mỗi phase chỉ đánh dấu hoàn thành khi đạt Definition of Done.
-
-## 14. Trạng thái hiện tại
-
-- Project status: **Initialization**.
-- Primary target: **Windows Desktop**.
-- Future target: **Android**.
-- Current phase: **Phase 0 — Khởi tạo dự án**.
+```text
+Target hiện tại : Windows Desktop
+Target tương lai: Android
+Phase 0         : DONE
+Phase 1         : FOUNDATION DONE
+Phase 2         : IN PROGRESS
+Phase 3         : DATA FOUNDATION IN PROGRESS
+Next focus      : hoàn thiện data pipeline → validated 600-question dataset
+```
