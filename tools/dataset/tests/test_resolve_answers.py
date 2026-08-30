@@ -11,6 +11,7 @@ from resolve_answers import (  # noqa: E402
     Segment,
     TextLine,
     answer_line_groups,
+    build_lines,
     choose_answer,
     line_overlap,
     resolve_dataset,
@@ -18,6 +19,25 @@ from resolve_answers import (  # noqa: E402
 
 
 class ResolveAnswersTests(unittest.TestCase):
+    def test_build_lines_uses_visual_order_not_pdf_block_order(self) -> None:
+        extracted = {
+            "pages": [
+                {
+                    "page": 1,
+                    "spans": [
+                        {"block": 9, "line": 0, "span": 0, "text": "2. Hai", "bbox": [10, 50, 100, 64], "origin": [10, 60]},
+                        {"block": 1, "line": 0, "span": 0, "text": "Câu 1: Nội dung", "bbox": [10, 10, 130, 24], "origin": [10, 20]},
+                        {"block": 8, "line": 0, "span": 0, "text": "1. Một", "bbox": [10, 30, 100, 44], "origin": [10, 40]},
+                    ],
+                }
+            ]
+        }
+
+        lines = build_lines(extracted)
+
+        self.assertEqual([line.text for line in lines], ["Câu 1: Nội dung", "1. Một", "2. Hai"])
+        self.assertEqual([line.order for line in lines], [0, 1, 2])
+
     def test_answer_line_groups_splits_numbered_answers(self) -> None:
         lines = [
             TextLine(1, 0, "Câu 1: Nội dung", (10, 10, 100, 20), 18),
