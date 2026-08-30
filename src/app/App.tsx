@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { AppShell } from "../components/AppShell";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
 import { LearningPage } from "../features/learning/LearningPage";
+import { QuestionCollectionPage } from "../features/learning/QuestionCollectionPage";
 import { FeaturePlaceholder } from "../features/placeholder/FeaturePlaceholder";
 import type { AppSection } from "./navigation";
 import { useDatasetBootstrap } from "./useDatasetBootstrap";
@@ -18,10 +19,14 @@ export function App() {
         return <LearningPage datasetStatus={datasetStatus} />;
       case "critical":
         return (
-          <FeaturePlaceholder
+          <QuestionCollectionPage
+            datasetStatus={datasetStatus}
             eyebrow="Luyện tập chuyên biệt"
             title="60 câu điểm liệt"
-            description="Khu vực này sẽ dùng dataset chính thức để luyện riêng các câu mất an toàn giao thông nghiêm trọng và theo dõi tiến độ độc lập."
+            description="Luyện riêng các tình huống mất an toàn giao thông nghiêm trọng. Trong chế độ học, đáp án vẫn được chấm và lưu progress như các câu khác."
+            criticalOnly
+            emptyTitle="Chưa có câu điểm liệt trong dataset hiện tại."
+            emptyDescription="Kiểm tra lại dataset production và danh sách 60 câu điểm liệt đã được xác minh."
           />
         );
       case "exam":
@@ -34,18 +39,26 @@ export function App() {
         );
       case "mistakes":
         return (
-          <FeaturePlaceholder
+          <QuestionCollectionPage
+            datasetStatus={datasetStatus}
             eyebrow="Review queue"
             title="Câu làm sai"
-            description="Các câu trả lời sai sẽ được lưu trong SQLite và ưu tiên đưa lại vào hàng đợi ôn tập."
+            description="Các câu từng trả lời sai được lấy trực tiếp từ SQLite và ưu tiên để ôn lại."
+            filter="wrong"
+            emptyTitle="Chưa có câu làm sai."
+            emptyDescription="Các câu trả lời sai sẽ tự xuất hiện tại đây sau khi bạn luyện tập."
           />
         );
       case "bookmarks":
         return (
-          <FeaturePlaceholder
+          <QuestionCollectionPage
+            datasetStatus={datasetStatus}
             eyebrow="Bookmark"
             title="Đã đánh dấu"
-            description="Lưu các câu cần xem lại. Dữ liệu bookmark sẽ được giữ offline trên thiết bị."
+            description="Danh sách câu bạn chủ động lưu để xem lại, được giữ offline trên thiết bị."
+            filter="bookmarked"
+            emptyTitle="Chưa có câu nào được đánh dấu."
+            emptyDescription="Bấm biểu tượng ngôi sao trong màn hình học để thêm câu vào danh sách này."
           />
         );
       case "statistics":
