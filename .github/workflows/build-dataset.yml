@@ -1,0 +1,82 @@
+name: Build Dataset Analysis
+
+on:
+  workflow_dispatch:
+    inputs:
+      download_timeout:
+        description: "Timeout per source request (seconds)"
+        required: false
+        default: "90"
+      download_retries:
+        description: "Number of source download attempts"
+        required: false
+        default: "5"
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Extract and resolve official PDF
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dataset dependencies
+        run: python -m pip install -r tools/dataset/requirements.txt
+
+      - name: Validate source metadata
+        run: python tools/dataset/check_source_metadata.py
+
+      - name: Download official question bank
+        run: >-
+          python tools/dataset/download_sources.py
+          --source-type question-bank
+          --timeout ${{ inputs.download_timeout }}
+          --retries ${{ inputs.download_retries }}
+
+      - name: Extract PDF geometry
+        run: python tools/dataset/extract_pdf.py
+
+      - name: Parse question candidates
+        run: python tools/dataset/parse_questions.py
+
+      - name: Resolve underlined answers
+        run: python tools/dataset/resolve_answers.py
+
+      - name: Print resolution summary
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          dataset = json.loads(Path("data/raw/questions.resolved.json").read_text(encoding="utf-8"))
+          review = json.loads(Path("data/raw/answer-review.json").read_text(encoding="utf-8"))
+          summary = dataset.get("answerResolutionSummary", {})
+          print("Questions:", len(dataset.get("questions", [])))
+          print("Resolved:", summary.get("resolved"))
+          print("Unresolved:", summary.get("unresolved"))
+          print("Manual review items:", review.get("unresolvedCount"))
+          PY
+
+      - name: Upload resolution report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dataset-analysis-${{ github.run_number }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            data/raw/downloads.json
+            data/raw/questions.unverified.json
+            data/raw/questions.resolved.json
+            data/raw/answer-review.json

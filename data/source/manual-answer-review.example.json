@@ -1,0 +1,15 @@
+{
+  "dataset": "VN_GPLX_600",
+  "version": "2025.06",
+  "reviewVersion": "1",
+  "answers": [
+    {
+      "questionId": 1,
+      "answerKey": "A",
+      "sourcePage": 1,
+      "reviewer": "manual-review",
+      "verifiedAt": "YYYY-MM-DD",
+      "note": "Verified directly against the official PDF underline. Replace this example entry before use."
+    }
+  ]
+}

@@ -12,7 +12,16 @@
     "tauri:build": "tauri build",
     "tauri:android:init": "tauri android init",
     "tauri:android:dev": "tauri android dev",
-    "dataset:validate": "node tools/dataset/validate.mjs data/processed/questions.json"
+    "dataset:validate": "node tools/dataset/validate.mjs data/processed/questions.json",
+    "dataset:metadata": "python tools/dataset/check_source_metadata.py",
+    "dataset:download": "python tools/dataset/download_sources.py",
+    "dataset:extract": "python tools/dataset/extract_pdf.py",
+    "dataset:parse": "python tools/dataset/parse_questions.py",
+    "dataset:resolve": "python tools/dataset/resolve_answers.py",
+    "dataset:review": "python tools/dataset/apply_answer_review.py",
+    "dataset:promote": "python tools/dataset/promote_dataset.py",
+    "dataset:publish": "pnpm dataset:validate && python tools/dataset/publish_dataset.py",
+    "dataset:test": "python -m unittest discover -s tools/dataset/tests -p \"test_*.py\" -v"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",

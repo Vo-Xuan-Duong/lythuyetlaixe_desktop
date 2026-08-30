@@ -9,3 +9,9 @@ src-tauri/gen/
 .env
 .env.*
 !.env.example
+
+data/raw/*
+!data/raw/.gitkeep
+
+# Generated from data/processed/questions.json by pnpm dataset:publish.
+public/data/questions.json

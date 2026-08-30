@@ -58,6 +58,7 @@ assert(dataset?.dataset === "VN_GPLX_600", "dataset must equal VN_GPLX_600");
 assert(typeof dataset?.version === "string" && dataset.version.length > 0, "dataset.version is required");
 assert(typeof dataset?.validFrom === "string" && dataset.validFrom.length > 0, "dataset.validFrom is required");
 assert(Array.isArray(dataset?.questions), "dataset.questions must be an array");
+assert(dataset?.stage === "production", "dataset.stage must equal production before release/import");
 
 const questions = Array.isArray(dataset?.questions) ? dataset.questions : [];
 assert(
@@ -67,6 +68,7 @@ assert(
 
 const seenIds = new Set();
 let criticalCount = 0;
+let unresolvedCount = 0;
 
 for (const question of questions) {
   const prefix = `question ${question?.id ?? "<missing-id>"}`;
@@ -86,6 +88,9 @@ for (const question of questions) {
     assert(question.category === category, `${prefix}: expected category ${category}, found ${question.category}`);
   }
 
+  if (question.needsVerification === true) unresolvedCount += 1;
+  assert(question.needsVerification !== true, `${prefix}: still requires manual verification`);
+
   assert(Array.isArray(question.answers) && question.answers.length >= 2, `${prefix}: at least 2 answers are required`);
 
   if (Array.isArray(question.answers)) {
@@ -97,13 +102,11 @@ for (const question of questions) {
       assert(!answerKeys.has(answer?.key), `${prefix}: duplicated answer key ${answer?.key}`);
       answerKeys.add(answer?.key);
       assert(typeof answer?.content === "string" && answer.content.trim().length > 0, `${prefix}: answer content is required`);
+      assert(typeof answer?.correct === "boolean", `${prefix}: answer ${answer?.key ?? "<missing>"} correct must be boolean`);
       if (answer?.correct === true) correctCount += 1;
     }
 
-    assert(correctCount >= 1, `${prefix}: no correct answer is marked`);
-    if (correctCount > 1) {
-      warnings.push(`${prefix}: ${correctCount} answers are marked correct; verify against official source`);
-    }
+    assert(correctCount === 1, `${prefix}: expected exactly 1 correct answer, found ${correctCount}`);
   }
 
   assert(Array.isArray(question.licenses) && question.licenses.length > 0, `${prefix}: licenses must not be empty`);
@@ -124,6 +127,7 @@ assert(
   criticalCount === EXPECTED_CRITICAL_COUNT,
   `expected ${EXPECTED_CRITICAL_COUNT} critical questions, found ${criticalCount}`,
 );
+assert(unresolvedCount === 0, `expected 0 unresolved questions, found ${unresolvedCount}`);
 
 if (warnings.length > 0) {
   console.warn(`\nWarnings (${warnings.length}):`);
@@ -139,5 +143,6 @@ if (errors.length > 0) {
 console.log("Dataset validation passed.");
 console.log(`- Questions: ${questions.length}`);
 console.log(`- Critical questions: ${criticalCount}`);
+console.log(`- Unresolved: ${unresolvedCount}`);
 console.log(`- Version: ${dataset.version}`);
 console.log(`- Valid from: ${dataset.validFrom}`);
