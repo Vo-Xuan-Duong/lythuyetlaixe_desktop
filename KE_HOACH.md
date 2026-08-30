@@ -259,12 +259,13 @@ Không rải check `platform === windows` trong domain/application layer.
 - [x] Giữ `user_progress` khi update dataset cùng question ID.
 - [x] Bootstrap production dataset từ bundle vào SQLite theo version.
 - [x] Wire màn hình học vào `QuestionRepository` khi dataset production sẵn sàng.
+- [x] Wire progress/bookmark vào SQLite.
+- [x] Tạo `LearningCatalogRepository` read-model join question/progress/bookmark.
 - [ ] Thực tế seed đủ 600 câu sau khi Phase 3 tạo dataset production.
-- [ ] Wire progress/bookmark vào SQLite.
 - [ ] Lưu/lấy lịch sử thi qua repository riêng.
 - [ ] Integration tests cho migration/repository/importer trên runtime Tauri.
 
-**Trạng thái:** data integration foundation đã có; chờ dataset production để chạy end-to-end.
+**Trạng thái:** data integration foundation hoàn thành; chờ dataset production để chạy end-to-end đủ 600 câu.
 
 ## Phase 3 — Data pipeline 600 câu
 
@@ -298,22 +299,26 @@ Không rải check `platform === windows` trong domain/application layer.
 
 ## Phase 4 — Learning mode
 
-- [ ] Danh sách 6 chủ đề.
-- [ ] Danh sách câu theo chủ đề.
-- [x] Màn hình câu hỏi có đường chuyển sang repository thật khi dataset sẵn sàng.
-- [ ] Previous/Next.
-- [x] Chấm đáp án cơ bản.
+- [x] Danh sách 6 chủ đề.
+- [x] Danh sách câu theo chủ đề.
+- [x] Màn hình câu hỏi dùng repository thật khi dataset sẵn sàng.
+- [x] Previous/Next.
+- [x] Chấm đáp án.
 - [ ] Explanation production.
-- [ ] Bookmark.
-- [ ] Lưu correct/wrong/progress.
-- [ ] Filter chưa học/đã học/hay sai.
+- [x] Bookmark.
+- [x] Lưu correct/wrong/progress.
+- [x] Mastery 0–4 + lịch ôn tập cơ bản.
+- [x] Filter chưa học/đã học/câu sai/bookmark.
+- [x] Phân trang catalog và responsive desktop/mobile.
+
+**Trạng thái:** core learning flow hoàn thành; còn explanation production và xác nhận end-to-end với dataset 600 câu thật.
 
 ## Phase 5 — 60 câu điểm liệt
 
-- [ ] Trang riêng.
-- [ ] Tiến độ riêng.
-- [ ] Luyện toàn bộ 60 câu.
-- [ ] Ôn lại câu điểm liệt sai.
+- [x] Trang riêng.
+- [ ] Tiến độ tổng hợp riêng cho 60 câu.
+- [x] Luyện toàn bộ 60 câu qua cùng LearningSession.
+- [ ] Ôn lại riêng các câu điểm liệt sai.
 
 ## Phase 6 — Exam engine
 
@@ -328,11 +333,12 @@ Không rải check `platform === windows` trong domain/application layer.
 
 ## Phase 7 — Review engine
 
-- [ ] Trang câu sai.
-- [ ] Mastery calculation.
+- [x] Trang câu sai.
+- [x] Mastery calculation.
 - [ ] Weak-question ranking.
-- [ ] Review queue.
-- [ ] Spaced repetition cơ bản.
+- [ ] Review queue theo `nextReviewAt`.
+- [x] Spaced repetition cơ bản.
+- [x] Trang bookmark offline.
 
 ## Phase 8 — Statistics
 
@@ -429,6 +435,8 @@ Phase 0         : DONE
 Phase 1         : FOUNDATION DONE
 Phase 2         : DATA INTEGRATION FOUNDATION DONE
 Phase 3         : PIPELINE FOUNDATION DONE / REAL PDF RUN PENDING
-Phase 4         : LEARNING INTEGRATION STARTED
-Next focus      : chạy pipeline nguồn thật → image mapping → production dataset → SQLite end-to-end
+Phase 4         : CORE LEARNING FLOW DONE / REAL DATA E2E PENDING
+Phase 5         : BASIC CRITICAL PRACTICE DONE
+Phase 7         : BASIC REVIEW FLOW DONE
+Next focus      : chạy pipeline nguồn thật → image mapping → production dataset → SQLite end-to-end → Exam Engine
 ```
