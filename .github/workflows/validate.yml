@@ -48,7 +48,10 @@ jobs:
           python-version: "3.12"
 
       - name: Syntax check
-        run: python -m py_compile tools/dataset/*.py
+        run: python -m py_compile tools/dataset/*.py tools/dataset/tests/*.py
+
+      - name: Unit tests
+        run: python -m unittest discover -s tools/dataset/tests -p "test_*.py" -v
 
       - name: Validate source metadata
         run: python tools/dataset/check_source_metadata.py
