@@ -53,8 +53,9 @@ jobs:
         run: python tools/dataset/resolve_answers.py
 
       - name: Print resolution summary
-        shell: python
+        shell: bash
         run: |
+          python - <<'PY'
           import json
           from pathlib import Path
 
@@ -65,6 +66,7 @@ jobs:
           print("Resolved:", summary.get("resolved"))
           print("Unresolved:", summary.get("unresolved"))
           print("Manual review items:", review.get("unresolvedCount"))
+          PY
 
       - name: Upload resolution report
         if: always()
