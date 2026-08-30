@@ -5,6 +5,7 @@ import "./styles/global.css";
 import "./styles/learning-session.css";
 import "./styles/learning-catalog.css";
 import "./styles/question-collection.css";
+import "./styles/exam.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
