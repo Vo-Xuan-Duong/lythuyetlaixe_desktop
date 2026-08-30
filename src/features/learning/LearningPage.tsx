@@ -1,12 +1,17 @@
 import { useEffect, useState } from "react";
-import type { DatasetBootstrapStatus } from "../../infrastructure/database/DatasetBootstrap";
 import type { Question } from "../../domain/entities/question";
+import type { QuestionProgress } from "../../domain/entities/progress";
+import { accuracyPercent, recordAnswerProgress } from "../../domain/services/learningProgress";
 import { demoQuestion } from "../../data/demo";
+import type { DatasetBootstrapStatus } from "../../infrastructure/database/DatasetBootstrap";
+import { SqliteProgressRepository } from "../../infrastructure/repositories/SqliteProgressRepository";
 import { SqliteQuestionRepository } from "../../infrastructure/repositories/SqliteQuestionRepository";
 
 interface LearningPageProps {
   datasetStatus: DatasetBootstrapStatus;
 }
+
+const QUESTION_COUNT = 600;
 
 const CATEGORY_LABELS: Record<string, string> = {
   GENERAL_RULES: "Quy định và quy tắc giao thông",
@@ -17,55 +22,155 @@ const CATEGORY_LABELS: Record<string, string> = {
   SITUATIONS: "Sa hình và xử lý tình huống",
 };
 
-const repository = new SqliteQuestionRepository();
+const questionRepository = new SqliteQuestionRepository();
+const progressRepository = new SqliteProgressRepository();
+
+function formatReviewTime(value?: string): string {
+  if (!value) return "Chưa có";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Chưa có";
+  return new Intl.DateTimeFormat("vi-VN", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
 
 export function LearningPage({ datasetStatus }: LearningPageProps) {
+  const [currentQuestionId, setCurrentQuestionId] = useState(1);
   const [selectedAnswer, setSelectedAnswer] = useState<string>();
   const [checked, setChecked] = useState(false);
   const [databaseQuestion, setDatabaseQuestion] = useState<Question | null>(null);
+  const [progress, setProgress] = useState<QuestionProgress | null>(null);
+  const [bookmarked, setBookmarked] = useState(false);
+  const [questionLoading, setQuestionLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState<string>();
+  const [operationError, setOperationError] = useState<string>();
 
   useEffect(() => {
     let active = true;
 
     if (datasetStatus.state !== "ready") {
       setDatabaseQuestion(null);
+      setProgress(null);
+      setBookmarked(false);
       setLoadError(undefined);
+      setQuestionLoading(false);
       return () => {
         active = false;
       };
     }
 
-    void repository
-      .getById(1)
-      .then((question) => {
+    setQuestionLoading(true);
+    setLoadError(undefined);
+    setOperationError(undefined);
+
+    void Promise.all([
+      questionRepository.getById(currentQuestionId),
+      progressRepository.get(currentQuestionId),
+      progressRepository.isBookmarked(currentQuestionId),
+    ])
+      .then(([question, questionProgress, isBookmarked]) => {
         if (!active) return;
         setDatabaseQuestion(question);
-        setLoadError(question ? undefined : "SQLite đã sẵn sàng nhưng chưa tìm thấy câu số 1.");
+        setProgress(questionProgress);
+        setBookmarked(isBookmarked);
+        setLoadError(
+          question
+            ? undefined
+            : `SQLite đã sẵn sàng nhưng không tìm thấy câu số ${currentQuestionId}.`,
+        );
       })
       .catch((error) => {
         if (!active) return;
         setDatabaseQuestion(null);
+        setProgress(null);
+        setBookmarked(false);
         setLoadError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        if (active) setQuestionLoading(false);
       });
 
     return () => {
       active = false;
     };
-  }, [datasetStatus]);
+  }, [currentQuestionId, datasetStatus]);
 
   const question = databaseQuestion ?? demoQuestion;
   const isProductionData = databaseQuestion !== null && datasetStatus.state === "ready";
   const selected = question.answers.find((answer) => answer.key === selectedAnswer);
+  const accuracy = accuracyPercent(progress);
 
-  const reset = () => {
+  const resetAnswer = () => {
     setSelectedAnswer(undefined);
     setChecked(false);
+    setOperationError(undefined);
   };
 
   useEffect(() => {
-    reset();
+    resetAnswer();
   }, [question.id, question.sourceVersion]);
+
+  const handleCheck = async () => {
+    if (!selectedAnswer || checked || saving) return;
+
+    const answer = question.answers.find((item) => item.key === selectedAnswer);
+    if (!answer) return;
+
+    setChecked(true);
+    setOperationError(undefined);
+
+    if (!isProductionData) return;
+
+    const nextProgress = recordAnswerProgress({
+      questionId: question.id,
+      correct: answer.correct,
+      previous: progress,
+    });
+
+    setSaving(true);
+    try {
+      await progressRepository.save(nextProgress);
+      setProgress(nextProgress);
+    } catch (error) {
+      setOperationError(
+        `Đã chấm đáp án nhưng chưa lưu được tiến độ: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const toggleBookmark = async () => {
+    if (!isProductionData || saving) return;
+
+    setSaving(true);
+    setOperationError(undefined);
+    try {
+      if (bookmarked) {
+        await progressRepository.removeBookmark(question.id);
+        setBookmarked(false);
+      } else {
+        await progressRepository.addBookmark(question.id);
+        setBookmarked(true);
+      }
+    } catch (error) {
+      setOperationError(
+        `Không thể cập nhật đánh dấu: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const navigateTo = (questionId: number) => {
+    if (!isProductionData || questionLoading || saving) return;
+    if (questionId < 1 || questionId > QUESTION_COUNT || questionId === currentQuestionId) return;
+    setCurrentQuestionId(questionId);
+  };
 
   const dataTag = (() => {
     if (datasetStatus.state === "checking") return "Đang kiểm tra dữ liệu";
@@ -79,10 +184,11 @@ export function LearningPage({ datasetStatus }: LearningPageProps) {
       <div className="section-heading learning-heading">
         <div>
           <span className="eyebrow">Chế độ học</span>
-          <h1>Câu {question.id} / 600</h1>
+          <h1>Câu {question.id} / {QUESTION_COUNT}</h1>
         </div>
         <div className="question-tags">
           <span>{CATEGORY_LABELS[question.categoryCode] ?? question.categoryCode}</span>
+          {question.critical && <span className="critical-tag">Câu điểm liệt</span>}
           <span className={isProductionData ? "production-tag" : "demo-tag"}>{dataTag}</span>
         </div>
       </div>
@@ -94,11 +200,26 @@ export function LearningPage({ datasetStatus }: LearningPageProps) {
         </div>
       )}
 
-      <div className="learning-layout">
+      {operationError && (
+        <div className="data-warning" role="status">
+          {operationError}
+        </div>
+      )}
+
+      <div className="learning-layout" aria-busy={questionLoading || saving}>
         <section className="question-card">
           <div className="question-meta">
-            <span>Câu hỏi</span>
-            <button type="button" className="bookmark-button" aria-label="Đánh dấu câu hỏi">☆</button>
+            <span>{questionLoading ? "Đang tải câu hỏi..." : "Câu hỏi"}</span>
+            <button
+              type="button"
+              className={`bookmark-button ${bookmarked ? "bookmarked" : ""}`}
+              aria-label={bookmarked ? "Bỏ đánh dấu câu hỏi" : "Đánh dấu câu hỏi"}
+              aria-pressed={bookmarked}
+              disabled={!isProductionData || saving}
+              onClick={() => void toggleBookmark()}
+            >
+              {bookmarked ? "★" : "☆"}
+            </button>
           </div>
 
           <h2>{question.content}</h2>
@@ -127,7 +248,7 @@ export function LearningPage({ datasetStatus }: LearningPageProps) {
                   key={answer.key}
                   type="button"
                   className={`answer-option ${state}`}
-                  disabled={checked}
+                  disabled={checked || questionLoading}
                   onClick={() => setSelectedAnswer(answer.key)}
                 >
                   <span className="answer-key">{answer.key}</span>
@@ -140,11 +261,11 @@ export function LearningPage({ datasetStatus }: LearningPageProps) {
           {!checked ? (
             <button
               className="primary-button check-button"
-              disabled={!selectedAnswer}
-              onClick={() => setChecked(true)}
+              disabled={!selectedAnswer || questionLoading || saving}
+              onClick={() => void handleCheck()}
               type="button"
             >
-              Kiểm tra đáp án
+              {saving ? "Đang lưu..." : "Kiểm tra đáp án"}
             </button>
           ) : (
             <div className={`answer-feedback ${selected?.correct ? "success" : "danger"}`}>
@@ -152,20 +273,42 @@ export function LearningPage({ datasetStatus }: LearningPageProps) {
               <p>{question.explanation ?? "Đáp án được đối chiếu từ dataset đã xác minh."}</p>
             </div>
           )}
+
+          <div className="question-navigation">
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={!isProductionData || currentQuestionId <= 1 || questionLoading || saving}
+              onClick={() => navigateTo(currentQuestionId - 1)}
+            >
+              ← Câu trước
+            </button>
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={!isProductionData || currentQuestionId >= QUESTION_COUNT || questionLoading || saving}
+              onClick={() => navigateTo(currentQuestionId + 1)}
+            >
+              Câu tiếp →
+            </button>
+          </div>
         </section>
 
         <aside className="question-side-panel">
-          <span className="eyebrow">Phiên học</span>
-          <h3>Tiến độ chủ đề</h3>
-          <div className="side-progress"><i /></div>
+          <span className="eyebrow">Tiến độ câu này</span>
+          <h3>{progress ? `${accuracy}% chính xác` : "Chưa làm"}</h3>
+          <div className="side-progress">
+            <i style={{ width: `${(progress?.mastery ?? 0) * 25}%` }} />
+          </div>
           <dl>
-            <div><dt>Đã làm</dt><dd>0</dd></div>
-            <div><dt>Đúng</dt><dd>0</dd></div>
-            <div><dt>Sai</dt><dd>0</dd></div>
-            <div><dt>Mastery</dt><dd>0 / 4</dd></div>
+            <div><dt>Số lần làm</dt><dd>{progress?.attemptCount ?? 0}</dd></div>
+            <div><dt>Đúng</dt><dd>{progress?.correctCount ?? 0}</dd></div>
+            <div><dt>Sai</dt><dd>{progress?.wrongCount ?? 0}</dd></div>
+            <div><dt>Mastery</dt><dd>{progress?.mastery ?? 0} / 4</dd></div>
+            <div><dt>Ôn lại</dt><dd>{formatReviewTime(progress?.nextReviewAt)}</dd></div>
           </dl>
           {checked && (
-            <button className="secondary-button full-width" onClick={reset} type="button">
+            <button className="secondary-button full-width" onClick={resetAnswer} type="button" disabled={saving}>
               Làm lại câu hiện tại
             </button>
           )}
