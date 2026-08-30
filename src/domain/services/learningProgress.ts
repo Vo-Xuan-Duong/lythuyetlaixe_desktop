@@ -2,8 +2,9 @@ import type { MasteryLevel, QuestionProgress } from "../entities/progress";
 
 const MINUTE_MS = 60 * 1000;
 const DAY_MS = 24 * 60 * MINUTE_MS;
+const WRONG_ANSWER_REVIEW_DELAY = 10 * MINUTE_MS;
 
-const REVIEW_DELAYS_BY_MASTERY: Record<MasteryLevel, number> = {
+const CORRECT_REVIEW_DELAYS_BY_MASTERY: Record<MasteryLevel, number> = {
   0: 10 * MINUTE_MS,
   1: 1 * DAY_MS,
   2: 3 * DAY_MS,
@@ -26,8 +27,11 @@ export function nextMastery(current: MasteryLevel, correct: boolean): MasteryLev
   return clampMastery(correct ? current + 1 : current - 1);
 }
 
-export function nextReviewAt(mastery: MasteryLevel, answeredAt: Date): string {
-  return new Date(answeredAt.getTime() + REVIEW_DELAYS_BY_MASTERY[mastery]).toISOString();
+export function nextReviewAt(mastery: MasteryLevel, correct: boolean, answeredAt: Date): string {
+  const delay = correct
+    ? CORRECT_REVIEW_DELAYS_BY_MASTERY[mastery]
+    : WRONG_ANSWER_REVIEW_DELAY;
+  return new Date(answeredAt.getTime() + delay).toISOString();
 }
 
 export function recordAnswerProgress({
@@ -46,7 +50,7 @@ export function recordAnswerProgress({
     wrongCount: (previous?.wrongCount ?? 0) + (correct ? 0 : 1),
     mastery,
     lastAnsweredAt: answeredAt.toISOString(),
-    nextReviewAt: nextReviewAt(mastery, answeredAt),
+    nextReviewAt: nextReviewAt(mastery, correct, answeredAt),
   };
 }
 
