@@ -16,7 +16,9 @@
     "dataset:metadata": "python tools/dataset/check_source_metadata.py",
     "dataset:download": "python tools/dataset/download_sources.py",
     "dataset:extract": "python tools/dataset/extract_pdf.py",
-    "dataset:parse": "python tools/dataset/parse_questions.py"
+    "dataset:parse": "python tools/dataset/parse_questions.py",
+    "dataset:resolve": "python tools/dataset/resolve_answers.py",
+    "dataset:test": "python -m unittest discover -s tools/dataset/tests -p \"test_*.py\" -v"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
