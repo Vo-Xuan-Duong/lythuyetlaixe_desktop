@@ -79,6 +79,19 @@ export class SqliteQuestionRepository implements QuestionRepository {
     );
   }
 
+  async listForLicense(licenseType: LicenseType): Promise<Question[]> {
+    return this.list(
+      `SELECT q.id, c.code AS category_code, q.content, q.image_path,
+              q.is_critical, q.source_version, q.explanation
+       FROM questions q
+       JOIN categories c ON c.id = q.category_id
+       JOIN question_license_types qlt ON qlt.question_id = q.id
+       WHERE qlt.license_type = $1
+       ORDER BY q.id`,
+      [licenseType],
+    );
+  }
+
   private async list(query: string, bindValues: unknown[] = []): Promise<Question[]> {
     const db = await getDatabase();
     const rows = await db.select<QuestionRow[]>(query, bindValues);
