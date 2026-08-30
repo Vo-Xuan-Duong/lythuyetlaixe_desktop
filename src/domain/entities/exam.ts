@@ -60,3 +60,14 @@ export interface ExamResult {
   unansweredCount: number;
   answers: ExamAnswerResult[];
 }
+
+export interface ExamHistorySummary {
+  id: number;
+  licenseType: LicenseType;
+  questionCount: number;
+  score?: number;
+  passed?: boolean;
+  criticalFailed: boolean;
+  startedAt: string;
+  completedAt?: string;
+}
