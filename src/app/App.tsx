@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { AppShell } from "../components/AppShell";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
+import { ExamPage } from "../features/exam/ExamPage";
 import { LearningPage } from "../features/learning/LearningPage";
 import { QuestionCollectionPage } from "../features/learning/QuestionCollectionPage";
 import { FeaturePlaceholder } from "../features/placeholder/FeaturePlaceholder";
@@ -30,13 +31,7 @@ export function App() {
           />
         );
       case "exam":
-        return (
-          <FeaturePlaceholder
-            eyebrow="Exam engine"
-            title="Thi thử"
-            description="Đề thi sẽ được sinh từ ExamConfig theo hạng GPLX và thời gian hiệu lực, không hard-code số câu hoặc điểm đạt trong UI."
-          />
-        );
+        return <ExamPage datasetStatus={datasetStatus} />;
       case "mistakes":
         return (
           <QuestionCollectionPage
