@@ -4,16 +4,18 @@ import { DashboardPage } from "../features/dashboard/DashboardPage";
 import { LearningPage } from "../features/learning/LearningPage";
 import { FeaturePlaceholder } from "../features/placeholder/FeaturePlaceholder";
 import type { AppSection } from "./navigation";
+import { useDatasetBootstrap } from "./useDatasetBootstrap";
 
 export function App() {
   const [section, setSection] = useState<AppSection>("dashboard");
+  const datasetStatus = useDatasetBootstrap();
 
   const content = useMemo(() => {
     switch (section) {
       case "dashboard":
         return <DashboardPage onNavigate={setSection} />;
       case "learning":
-        return <LearningPage />;
+        return <LearningPage datasetStatus={datasetStatus} />;
       case "critical":
         return (
           <FeaturePlaceholder
@@ -63,7 +65,7 @@ export function App() {
           />
         );
     }
-  }, [section]);
+  }, [datasetStatus, section]);
 
   return (
     <AppShell activeSection={section} onNavigate={setSection}>
