@@ -155,6 +155,7 @@ Dataset chuẩn hóa dự kiến:
   "dataset": "VN_GPLX_600",
   "version": "2025.06",
   "validFrom": "2025-06-01",
+  "stage": "production",
   "questions": [
     {
       "id": 1,
@@ -173,13 +174,16 @@ Dataset chuẩn hóa dự kiến:
 }
 ```
 
-Validator phải kiểm tra tối thiểu:
+Validator production phải kiểm tra tối thiểu:
 
+- `stage = production`;
 - đủ 600 câu;
 - ID 1 → 600 không thiếu/trùng;
 - đúng nhóm câu theo khoảng;
 - đủ 60 câu điểm liệt;
-- có đáp án đúng;
+- không còn `needsVerification=true`;
+- mỗi câu có đúng chính xác 1 đáp án đúng;
+- `correct` phải là boolean;
 - answer key không trùng;
 - license không rỗng;
 - source version có mặt;
@@ -251,41 +255,55 @@ Không rải check `platform === windows` trong domain/application layer.
 - [x] Tạo repository contracts.
 - [x] Tạo `SqliteQuestionRepository`.
 - [x] Tạo `SqliteProgressRepository`.
-- [ ] Seed metadata/category từ dataset production.
-- [ ] Wire màn hình học vào QuestionRepository.
+- [x] Tạo `DatasetImporter` transaction + UPSERT metadata/category/question/answer/license.
+- [x] Giữ `user_progress` khi update dataset cùng question ID.
+- [x] Bootstrap production dataset từ bundle vào SQLite theo version.
+- [x] Wire màn hình học vào `QuestionRepository` khi dataset production sẵn sàng.
+- [ ] Thực tế seed đủ 600 câu sau khi Phase 3 tạo dataset production.
 - [ ] Wire progress/bookmark vào SQLite.
 - [ ] Lưu/lấy lịch sử thi qua repository riêng.
-- [ ] Integration tests cho migration/repository.
+- [ ] Integration tests cho migration/repository/importer trên runtime Tauri.
 
-**Trạng thái:** đang thực hiện.
+**Trạng thái:** data integration foundation đã có; chờ dataset production để chạy end-to-end.
 
 ## Phase 3 — Data pipeline 600 câu
 
 - [x] Xác định nguồn chính thức.
 - [x] Tạo source manifest/version.
 - [x] Viết tài liệu provenance.
-- [x] Tạo validator foundation.
-- [ ] Tải/lưu bản nguồn dùng cho extraction.
-- [ ] Xây PDF text extractor.
-- [ ] Extract hình ảnh.
-- [ ] Parse câu hỏi/đáp án.
-- [ ] Xác định đáp án đúng từ tài liệu chính thức.
-- [ ] Map 60 câu điểm liệt.
-- [ ] Chuẩn hóa `questions.json`.
-- [ ] Chạy validator đủ 600 câu.
-- [ ] Manual verification các câu parser không chắc chắn.
-- [ ] Import dataset validated vào SQLite.
+- [x] Map danh sách chính thức 60 câu điểm liệt.
+- [x] Tạo downloader + SHA-256 checksum.
+- [x] Xây PDF extractor bằng PyMuPDF.
+- [x] Giữ text spans/bbox/origin, embedded images và vector drawings.
+- [x] Parse candidate 600 câu sang `questions.unverified.json`.
+- [x] Không tự đoán đáp án trong parser (`correct=null`).
+- [x] Xây underline geometry resolver + confidence/margin.
+- [x] Xuất `answer-review.json` cho câu không chắc chắn.
+- [x] Unit tests cho underline resolver.
+- [x] Cơ chế manual answer review có provenance.
+- [x] Chặn manual override mâu thuẫn geometry trừ khi chỉ định rõ.
+- [x] Promotion gate trước production.
+- [x] Production validator: 600 câu/60 điểm liệt/1 đáp án đúng/no unresolved.
+- [x] Publisher đưa dataset đã validate vào Vite/Tauri bundle.
+- [x] CI chạy syntax + unit test dataset tooling.
+- [ ] Chạy downloader/extractor/parser/resolver trên PDF thật đầy đủ.
+- [ ] Hiệu chỉnh threshold underline dựa trên số liệu thực tế.
+- [ ] Map/rasterize hình ảnh cho biển báo và sa hình mà không làm lộ underline đáp án.
+- [ ] Manual verification các câu resolver không chắc chắn.
+- [ ] Tạo `data/processed/questions.json` production thực tế.
+- [ ] Chạy validator xanh với đủ 600 câu và image paths.
+- [ ] Publish dataset vào app và xác nhận import đủ 600 câu trong SQLite.
 
-**Definition of Done:** validator xanh, đủ 600 ID, đủ 60 câu điểm liệt, đáp án/hình ảnh được kiểm chứng.
+**Definition of Done:** validator xanh, đủ 600 ID, đủ 60 câu điểm liệt, đáp án/hình ảnh được kiểm chứng và app đọc 600 câu từ SQLite.
 
 ## Phase 4 — Learning mode
 
 - [ ] Danh sách 6 chủ đề.
 - [ ] Danh sách câu theo chủ đề.
-- [ ] Màn hình câu hỏi dùng repository thật.
+- [x] Màn hình câu hỏi có đường chuyển sang repository thật khi dataset sẵn sàng.
 - [ ] Previous/Next.
-- [ ] Chấm đáp án.
-- [ ] Explanation.
+- [x] Chấm đáp án cơ bản.
+- [ ] Explanation production.
 - [ ] Bookmark.
 - [ ] Lưu correct/wrong/progress.
 - [ ] Filter chưa học/đã học/hay sai.
@@ -326,7 +344,7 @@ Không rải check `platform === windows` trong domain/application layer.
 
 ## Phase 9 — Desktop production
 
-- [ ] App icon.
+- [x] App icon foundation cho Windows build.
 - [ ] Windows installer.
 - [ ] CI tối ưu với lockfile/cache.
 - [ ] GitHub Action manual release.
@@ -369,13 +387,15 @@ Chỉ làm sau khi offline app production ổn định.
 - critical fail rule;
 - question selection;
 - progress/mastery;
+- dataset extraction/resolution/promotion;
 - dataset validation.
 
 ### Integration tests
 
 - migration;
 - SQLite repositories;
-- dataset import.
+- dataset import;
+- dataset version update giữ nguyên progress.
 
 ### UI tests
 
@@ -407,7 +427,8 @@ Target hiện tại : Windows Desktop
 Target tương lai: Android
 Phase 0         : DONE
 Phase 1         : FOUNDATION DONE
-Phase 2         : IN PROGRESS
-Phase 3         : DATA FOUNDATION IN PROGRESS
-Next focus      : hoàn thiện data pipeline → validated 600-question dataset
+Phase 2         : DATA INTEGRATION FOUNDATION DONE
+Phase 3         : PIPELINE FOUNDATION DONE / REAL PDF RUN PENDING
+Phase 4         : LEARNING INTEGRATION STARTED
+Next focus      : chạy pipeline nguồn thật → image mapping → production dataset → SQLite end-to-end
 ```
