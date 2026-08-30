@@ -1,0 +1,39 @@
+.collection-heading {
+  align-items: flex-start;
+}
+
+.collection-heading h1 {
+  margin: 5px 0 8px;
+  font-size: 34px;
+  letter-spacing: -.035em;
+}
+
+.collection-heading p {
+  margin: 0;
+  max-width: 760px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.collection-question-list {
+  margin-top: 22px;
+}
+
+.collection-empty-state {
+  margin-top: 22px;
+}
+
+.collection-pagination {
+  padding: 0 2px;
+}
+
+@media (max-width: 700px) {
+  .collection-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .collection-heading h1 {
+    font-size: 28px;
+  }
+}
