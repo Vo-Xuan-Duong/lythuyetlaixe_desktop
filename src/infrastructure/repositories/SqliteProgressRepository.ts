@@ -71,6 +71,15 @@ export class SqliteProgressRepository implements ProgressRepository {
     return rows.map((row) => this.mapProgress(row));
   }
 
+  async isBookmarked(questionId: number): Promise<boolean> {
+    const db = await getDatabase();
+    const rows = await db.select<BookmarkRow[]>(
+      "SELECT question_id FROM bookmarks WHERE question_id = $1 LIMIT 1",
+      [questionId],
+    );
+    return rows.length > 0;
+  }
+
   async addBookmark(questionId: number): Promise<void> {
     const db = await getDatabase();
     await db.execute(
