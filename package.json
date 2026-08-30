@@ -11,7 +11,8 @@
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "tauri:android:init": "tauri android init",
-    "tauri:android:dev": "tauri android dev"
+    "tauri:android:dev": "tauri android dev",
+    "dataset:validate": "node tools/dataset/validate.mjs data/processed/questions.json"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",

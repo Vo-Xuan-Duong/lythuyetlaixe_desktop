@@ -1,0 +1,22 @@
+{
+  "dataset": "VN_GPLX_600",
+  "authority": "Cục Cảnh sát giao thông - Bộ Công an",
+  "version": "2025.06",
+  "validFrom": "2025-06-01",
+  "questionCount": 600,
+  "criticalQuestionCount": 60,
+  "sources": [
+    {
+      "type": "question-bank",
+      "title": "600 câu hỏi dùng cho sát hạch lái xe cơ giới đường bộ",
+      "url": "https://www.csgt.vn/upload/services/273963059_B%E1%BB%99%20600%20c%C3%A2u%20h%E1%BB%8Fi%20d%C3%B9ng%20cho%20s%C3%A1t%20h%E1%BA%A1ch%20l%C3%A1i%20xe%20c%C6%A1%20gi%E1%BB%9Bi%20%C4%91%C6%B0%E1%BB%9Dng%20b%E1%BB%99.pdf"
+    },
+    {
+      "type": "guidance",
+      "documentNumber": "2262/CSGT-P5",
+      "date": "2025-05-07",
+      "title": "Hướng dẫn sử dụng bộ câu hỏi sát hạch GPLX",
+      "url": "https://www.csgt.vn/upload/services/2071319603_H%C6%B0%E1%BB%9Bng%20d%E1%BA%ABn%20s%E1%BB%AD%20d%E1%BB%A5ng%20b%E1%BB%99%20c%C3%A2u%20h%E1%BB%8Fi%20s%C3%A1t%20h%E1%BA%A1ch%20GPLX%20%28CV%202262.07.5.2025%29.pdf"
+    }
+  ]
+}
