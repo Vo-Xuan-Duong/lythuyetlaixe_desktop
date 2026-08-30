@@ -26,6 +26,7 @@ Dữ liệu production chỉ lấy từ tài liệu chính thức của **Cục 
 Nguồn hiện hành được ghi tại:
 
 - `docs/DATA_SOURCE.md`
+- `docs/EXAM_CONFIG.md`
 - `data/source/source-manifest.json`
 
 Nguyên tắc:
@@ -34,7 +35,7 @@ Nguyên tắc:
 2. Không dùng AI để đoán đáp án chính thức.
 3. Dataset chưa qua validator không được import vào production database.
 4. Mỗi dataset phải có `version`, `validFrom`, nguồn tài liệu và số lượng câu điểm liệt.
-5. Khi quy định thay đổi, tạo dataset version mới thay vì ghi đè lịch sử.
+5. Khi quy định thay đổi, tạo dataset/config version mới thay vì ghi đè lịch sử.
 
 ## 3. Stack
 
@@ -48,6 +49,7 @@ Nguyên tắc:
 - React 19.
 - TypeScript.
 - Vite.
+- Vitest cho domain unit tests.
 - Responsive desktop/mobile từ đầu.
 
 ### Database
@@ -107,7 +109,8 @@ Platform-specific chỉ nên gồm:
 │   ├── source/
 │   └── processed/
 ├── docs/
-│   └── DATA_SOURCE.md
+│   ├── DATA_SOURCE.md
+│   └── EXAM_CONFIG.md
 ├── src/
 │   ├── app/
 │   ├── components/
@@ -191,20 +194,26 @@ Validator production phải kiểm tra tối thiểu:
 
 ## 8. Exam engine
 
-Không hard-code cấu hình thi trong UI.
+Không hard-code cấu hình thi trong UI. `ExamConfig` gồm version dataset, khoảng thời gian hiệu lực và quota theo chủ đề.
 
 ```ts
 interface ExamConfig {
+  id: string;
   licenseType: string;
+  datasetVersion: string;
   questionCount: number;
   durationSeconds: number;
   passingScore: number;
   criticalQuestionCount: number;
   failOnWrongCriticalQuestion: boolean;
+  categoryQuotas: Array<{ categoryCode: string; count: number }>;
   validFrom: string;
   validTo?: string;
+  sourceReference: string;
 }
 ```
+
+Config dựa trên dataset `2025.06` chỉ được resolve trong khoảng tương thích. Không dùng dataset cũ để giả lập format mới từ 01/03/2027 khi chưa có nguồn câu hỏi/format production tương thích.
 
 ## 9. Responsive / Android strategy
 
@@ -246,7 +255,7 @@ Không rải check `platform === windows` trong domain/application layer.
 - [x] Màn hình học câu hỏi demo + chọn/chấm đáp án.
 - [x] Route/state cho Điểm liệt, Thi thử, Câu sai, Bookmark, Thống kê, Cài đặt.
 
-**Trạng thái:** foundation hoàn thành; feature thật sẽ được thay dần cho placeholder.
+**Trạng thái:** foundation hoàn thành; feature thật được thay dần cho placeholder.
 
 ## Phase 2 — SQLite foundation
 
@@ -261,8 +270,9 @@ Không rải check `platform === windows` trong domain/application layer.
 - [x] Wire màn hình học vào `QuestionRepository` khi dataset production sẵn sàng.
 - [x] Wire progress/bookmark vào SQLite.
 - [x] Tạo `LearningCatalogRepository` read-model join question/progress/bookmark.
+- [x] Tạo query câu hỏi theo hạng GPLX phục vụ Exam Engine.
+- [x] Tạo `ExamHistoryRepository` + SQLite implementation.
 - [ ] Thực tế seed đủ 600 câu sau khi Phase 3 tạo dataset production.
-- [ ] Lưu/lấy lịch sử thi qua repository riêng.
 - [ ] Integration tests cho migration/repository/importer trên runtime Tauri.
 
 **Trạng thái:** data integration foundation hoàn thành; chờ dataset production để chạy end-to-end đủ 600 câu.
@@ -322,14 +332,24 @@ Không rải check `platform === windows` trong domain/application layer.
 
 ## Phase 6 — Exam engine
 
-- [ ] Exam config theo hạng GPLX và thời gian hiệu lực.
-- [ ] Question selection engine.
-- [ ] Timer.
-- [ ] Question navigator.
-- [ ] Submit/chấm điểm.
-- [ ] Critical fail rule.
-- [ ] Result breakdown.
-- [ ] Lưu exam history.
+- [x] Exam config theo hạng GPLX và thời gian hiệu lực.
+- [x] Quota theo cấu trúc bộ 600 câu hiện hành cho B/C1/C/D và nhóm hạng kéo rơ moóc.
+- [x] Config resolver chặn sử dụng dataset 2025.06 sau 28/02/2027.
+- [x] Question selection engine.
+- [x] Inject RNG để selection có thể unit test deterministic.
+- [x] Không trùng câu và tách riêng pool điểm liệt.
+- [x] Timer.
+- [x] Question navigator.
+- [x] Submit/chấm điểm.
+- [x] Critical fail rule.
+- [x] Result breakdown cơ bản.
+- [x] Lưu exam history + từng đáp án vào SQLite transaction.
+- [x] Màn hình Thi thử responsive: setup → exam → result.
+- [x] Unit tests cho config resolver, quota selection, scoring, critical fail và timer.
+- [ ] Review chi tiết từng câu sau khi nộp bài.
+- [ ] E2E với dataset production đủ 600 câu.
+
+**Trạng thái:** core Exam Engine hoàn thành; chờ dataset production để kiểm tra đề sinh ra end-to-end.
 
 ## Phase 7 — Review engine
 
@@ -387,11 +407,13 @@ Chỉ làm sau khi offline app production ổn định.
 
 ### Unit tests
 
-Ưu tiên:
+Đang có CI cho:
 
+- exam config resolver;
+- exam question selection/quota;
 - exam scoring;
 - critical fail rule;
-- question selection;
+- exam timer;
 - progress/mastery;
 - dataset extraction/resolution/promotion;
 - dataset validation.
@@ -401,7 +423,8 @@ Chỉ làm sau khi offline app production ổn định.
 - migration;
 - SQLite repositories;
 - dataset import;
-- dataset version update giữ nguyên progress.
+- dataset version update giữ nguyên progress;
+- exam history persistence.
 
 ### UI tests
 
@@ -437,6 +460,7 @@ Phase 2         : DATA INTEGRATION FOUNDATION DONE
 Phase 3         : PIPELINE FOUNDATION DONE / REAL PDF RUN PENDING
 Phase 4         : CORE LEARNING FLOW DONE / REAL DATA E2E PENDING
 Phase 5         : BASIC CRITICAL PRACTICE DONE
+Phase 6         : CORE EXAM ENGINE DONE / REAL DATA E2E PENDING
 Phase 7         : BASIC REVIEW FLOW DONE
-Next focus      : chạy pipeline nguồn thật → image mapping → production dataset → SQLite end-to-end → Exam Engine
+Next focus      : production dataset 600 câu → image mapping → SQLite E2E → Statistics/Review queue → Desktop release
 ```
