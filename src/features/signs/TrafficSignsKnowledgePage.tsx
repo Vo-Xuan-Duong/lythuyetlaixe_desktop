@@ -28,7 +28,7 @@ export function TrafficSignsKnowledgePage({
           </p>
           <div className="traffic-signs-actions">
             <button className="primary-button" type="button" onClick={() => onNavigate("learning")}>
-              {datasetReady ? "Luyện câu hỏi biển báo" : "Mở phần học 600 câu"}
+              Mở catalog 600 câu
             </button>
             <span className={`traffic-signs-dataset ${datasetReady ? "ready" : "pending"}`}>
               {datasetReady ? `Dataset ${datasetStatus.version} sẵn sàng` : "Kiến thức này dùng được ngay cả khi chưa có dataset"}
