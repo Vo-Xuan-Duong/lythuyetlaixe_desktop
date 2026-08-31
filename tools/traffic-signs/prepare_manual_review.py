@@ -40,6 +40,27 @@ def name_seed(heading: str, codes: list[str]) -> str:
     return ""
 
 
+def normalized_image_candidates(value: object) -> list[dict]:
+    if not isinstance(value, list):
+        return []
+    result: list[dict] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        file = item.get("file")
+        if not isinstance(file, str) or not file.strip():
+            continue
+        result.append(
+            {
+                "file": file.strip(),
+                "page": item.get("page"),
+                "crop": item.get("crop"),
+                "status": item.get("status"),
+            }
+        )
+    return result
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Prepare a manual-review JSON file from extracted traffic-sign candidate sections")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
@@ -77,6 +98,7 @@ def main() -> int:
                 )
                 continue
 
+            image_candidates = normalized_image_candidates(candidate.get("imageCandidates")) if from_official else []
             for raw_code in codes:
                 if not isinstance(raw_code, str) or not raw_code.strip():
                     continue
@@ -99,6 +121,7 @@ def main() -> int:
                         "notes": "",
                         "image": None,
                         "imageVerified": False,
+                        "candidateImages": image_candidates,
                         "keywords": [],
                         "sourceVersion": source_manifest.get("sourceDocument"),
                         "sourceSection": candidate.get("section"),
@@ -120,7 +143,7 @@ def main() -> int:
             "sourceSha256": technical_sha if from_official else None,
             "candidateSource": "official-technical-source" if from_official else "reference-only",
             "candidateFile": str(candidate_path.relative_to(ROOT)).replace("\\", "/"),
-            "notes": "Fill final fields from the verified official technical source. candidateText is context only and is never promoted automatically. If image is set, imageVerified must be true before apply.",
+            "notes": "Fill final fields from the verified official technical source. candidateText/candidateImages are context only and are never promoted automatically. If image is set, imageVerified must be true before apply.",
             "records": records,
             "sectionsWithoutCodes": sections_without_codes,
         }
