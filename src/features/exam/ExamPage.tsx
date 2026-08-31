@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNativeBackHandler } from "../../app/useNativeBackHandler";
 import type { ExamResult, ExamSession } from "../../domain/entities/exam";
 import type { LicenseType } from "../../domain/entities/question";
 import { createExamSession, remainingExamSeconds, scoreExam } from "../../domain/services/examEngine";
@@ -151,6 +152,23 @@ export function ExamPage({ datasetStatus }: ExamPageProps) {
     setError(undefined);
     submitInFlight.current = false;
   };
+
+  const handleNativeBack = useCallback(() => {
+    if (!session) return;
+    if (result) {
+      resetExam();
+      return;
+    }
+
+    if (window.confirm("Thoát đề thi hiện tại? Các câu trả lời chưa nộp sẽ không được lưu.")) {
+      resetExam();
+    }
+  }, [result, session]);
+
+  useNativeBackHandler(handleNativeBack, {
+    enabled: session !== null,
+    priority: 90,
+  });
 
   if (!session) {
     return (
