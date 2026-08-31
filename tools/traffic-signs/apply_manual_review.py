@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 from pathlib import Path
 
@@ -12,7 +13,9 @@ DEFAULT_REVIEW = ROOT / "data" / "traffic-signs" / "raw" / "manual-review.json"
 DEFAULT_OUTPUT = ROOT / "data" / "traffic-signs" / "processed" / "traffic-signs.json"
 OFFICIAL_CANDIDATES = ROOT / "data" / "traffic-signs" / "raw" / "official-candidates.json"
 GROUPS = {"PROHIBITION", "MANDATORY", "WARNING", "INDICATION", "SUPPLEMENTARY"}
+IMAGE_SELECTION_METHODS = {"official-qcvn-candidate", "official-qcvn-manual-crop"}
 CODE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.,_-]{0,31}$")
+SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 def load_json(path: Path, label: str) -> dict:
@@ -49,6 +52,27 @@ def string_array(value: object, label: str) -> list[str]:
     return result
 
 
+def safe_relative_path(value: object, label: str) -> str:
+    path_value = require_non_empty_string(value, label).replace("\\", "/").removeprefix("./")
+    parts = path_value.split("/")
+    if path_value.startswith("/") or re.match(r"^[A-Za-z]:", path_value) or any(part in {"", ".", ".."} for part in parts):
+        raise ValueError(f"{label} is unsafe: {value}")
+    return "/".join(parts)
+
+
+def normalize_crop(value: object, label: str) -> list[float]:
+    if not isinstance(value, list) or len(value) != 4:
+        raise ValueError(f"{label} must be [x0,y0,x1,y1]")
+    result: list[float] = []
+    for item in value:
+        if isinstance(item, bool) or not isinstance(item, (int, float)) or not math.isfinite(float(item)):
+            raise ValueError(f"{label} must contain finite numbers")
+        result.append(round(float(item), 2))
+    if result[2] <= result[0] or result[3] <= result[1]:
+        raise ValueError(f"{label} must have positive area")
+    return result
+
+
 def official_candidate_codes(source_sha256: str) -> set[str]:
     candidates = load_json(OFFICIAL_CANDIDATES, "official traffic-sign candidates")
     if candidates.get("stage") != "review-candidate":
@@ -72,7 +96,50 @@ def official_candidate_codes(source_sha256: str) -> set[str]:
     return result
 
 
-def normalize_record(record: dict, source_document: str) -> dict:
+def normalize_image_selection(
+    value: object,
+    *,
+    code: str,
+    image: str,
+    source_sha256: str,
+    source_section: str,
+) -> dict:
+    if not isinstance(value, dict):
+        raise ValueError(f"{code}: verified image requires imageSelection provenance")
+    method = require_non_empty_string(value.get("method"), f"{code}.imageSelection.method")
+    if method not in IMAGE_SELECTION_METHODS:
+        raise ValueError(f"{code}: unsupported imageSelection method {method}")
+    selection_sha = require_non_empty_string(value.get("sourceSha256"), f"{code}.imageSelection.sourceSha256").lower().removeprefix("sha256:")
+    if not SHA_RE.fullmatch(selection_sha) or selection_sha != source_sha256:
+        raise ValueError(f"{code}: imageSelection sourceSha256 does not match verified QCVN bundle")
+    selection_section = require_non_empty_string(value.get("sourceSection"), f"{code}.imageSelection.sourceSection")
+    if selection_section != source_section:
+        raise ValueError(f"{code}: imageSelection sourceSection does not match record sourceSection")
+    page = value.get("page")
+    if isinstance(page, bool) or not isinstance(page, int) or page <= 0:
+        raise ValueError(f"{code}: imageSelection.page must be a positive integer")
+    crop = normalize_crop(value.get("crop"), f"{code}.imageSelection.crop")
+    processed_asset = safe_relative_path(value.get("processedAsset"), f"{code}.imageSelection.processedAsset")
+    if processed_asset != image:
+        raise ValueError(f"{code}: imageSelection.processedAsset must match image")
+
+    result = {
+        "method": method,
+        "sourceSha256": source_sha256,
+        "sourceSection": source_section,
+        "page": page,
+        "crop": crop,
+        "processedAsset": processed_asset,
+    }
+    if method == "official-qcvn-candidate":
+        candidate = safe_relative_path(value.get("candidateFile"), f"{code}.imageSelection.candidateFile")
+        if not candidate.startswith("image-candidates/"):
+            raise ValueError(f"{code}: imageSelection.candidateFile must be inside image-candidates/")
+        result["candidateFile"] = candidate
+    return result
+
+
+def normalize_record(record: dict, source_document: str, source_sha256: str) -> dict:
     code = require_non_empty_string(record.get("code"), "record.code").upper()
     if not CODE_RE.fullmatch(code):
         raise ValueError(f"{code}: invalid code")
@@ -91,13 +158,25 @@ def normalize_record(record: dict, source_document: str) -> dict:
     source_pages_raw = record.get("sourcePages")
     if not isinstance(source_pages_raw, list) or not source_pages_raw:
         raise ValueError(f"{code}: sourcePages must contain at least one page number")
-    source_pages = sorted({page for page in source_pages_raw if isinstance(page, int) and page > 0})
+    source_pages = sorted({page for page in source_pages_raw if isinstance(page, int) and not isinstance(page, bool) and page > 0})
     if not source_pages:
         raise ValueError(f"{code}: sourcePages must contain positive integers")
 
-    image = optional_string(record.get("image"), f"{code}.image")
-    if image and record.get("imageVerified") is not True:
-        raise ValueError(f"{code}: image is set but imageVerified is not true")
+    image_raw = optional_string(record.get("image"), f"{code}.image")
+    image = safe_relative_path(image_raw, f"{code}.image") if image_raw else None
+    image_selection = None
+    if image:
+        if record.get("imageVerified") is not True:
+            raise ValueError(f"{code}: image is set but imageVerified is not true")
+        image_selection = normalize_image_selection(
+            record.get("imageSelection"),
+            code=code,
+            image=image,
+            source_sha256=source_sha256,
+            source_section=source_section,
+        )
+    elif record.get("imageSelection") is not None or record.get("imageVerified") is True:
+        raise ValueError(f"{code}: image verification/provenance is present without image")
 
     result = {
         "code": code,
@@ -109,16 +188,16 @@ def normalize_record(record: dict, source_document: str) -> dict:
         "exceptions": string_array(record.get("exceptions"), f"{code}.exceptions"),
         "notes": optional_string(record.get("notes"), f"{code}.notes"),
         "image": image,
+        "imageVerified": True if image else False,
         "keywords": string_array(record.get("keywords"), f"{code}.keywords"),
         "sourceVersion": source_version,
         "sourceSection": source_section,
         "sourcePages": source_pages,
         "verifiedBy": verified_by,
         "verifiedAt": verified_at,
-        "imageVerified": True if image else False,
     }
-    if isinstance(record.get("imageSelection"), dict):
-        result["imageSelection"] = record["imageSelection"]
+    if image_selection is not None:
+        result["imageSelection"] = image_selection
     return result
 
 
@@ -155,7 +234,7 @@ def main() -> int:
         for raw_record in records:
             if not isinstance(raw_record, dict):
                 raise ValueError("manual review records must be JSON objects")
-            sign = normalize_record(raw_record, source_document)
+            sign = normalize_record(raw_record, source_document, provenance.source_sha256)
             if sign["code"] in seen:
                 raise ValueError(f"duplicate reviewed code: {sign['code']}")
             seen.add(sign["code"])
