@@ -56,7 +56,11 @@ export async function fetchDatasetManifest(url: string): Promise<RemoteDatasetMa
     throw new Error("Remote dataset manifest is missing sha256");
   }
 
-  return manifest as RemoteDatasetManifest;
+  const manifestUrl = response.url || url;
+  return {
+    ...(manifest as RemoteDatasetManifest),
+    datasetUrl: new URL(manifest.datasetUrl, manifestUrl).toString(),
+  };
 }
 
 async function sha256Hex(buffer: ArrayBuffer): Promise<string> {
