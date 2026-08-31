@@ -1,0 +1,68 @@
+.traffic-signs-page { display: grid; gap: 24px; }
+
+.traffic-signs-hero { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 24px; align-items: stretch; padding: 34px; border-radius: 22px; border: 1px solid #dce4f1; background: linear-gradient(135deg, #ffffff 0%, #f7f9fd 68%, #eef3ff 100%); }
+.traffic-signs-hero h1 { margin: 8px 0 12px; max-width: 760px; font-size: clamp(30px, 4vw, 46px); line-height: 1.08; letter-spacing: -.04em; }
+.traffic-signs-hero p { margin: 0; max-width: 800px; color: var(--muted); line-height: 1.7; }
+.traffic-signs-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 22px; }
+.traffic-signs-dataset { padding: 8px 11px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+.traffic-signs-dataset.ready { color: #176a49; background: #eefaf4; border: 1px solid #b6dfcd; }
+.traffic-signs-dataset.pending { color: #80530f; background: #fff9ef; border: 1px solid #efd2a6; }
+
+.traffic-signs-source-card { border: 1px solid #d5def0; border-radius: 18px; padding: 22px; background: rgba(255,255,255,.86); display: grid; align-content: center; gap: 8px; }
+.traffic-signs-source-card span { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; font-weight: 800; }
+.traffic-signs-source-card strong { font-size: 20px; }
+.traffic-signs-source-card small { color: var(--muted); line-height: 1.5; }
+
+.traffic-signs-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.traffic-signs-summary article { background: white; border: 1px solid var(--border); border-radius: 14px; padding: 17px 18px; display: grid; gap: 4px; }
+.traffic-signs-summary strong { font-size: 18px; }
+.traffic-signs-summary span { color: var(--muted); font-size: 12px; line-height: 1.45; }
+
+.traffic-signs-heading { align-items: center; }
+.traffic-sign-groups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.traffic-sign-card { border: 1px solid var(--border); background: white; border-radius: 18px; padding: 22px; display: grid; gap: 18px; }
+.traffic-sign-card:last-child { grid-column: 1 / -1; }
+.traffic-sign-card-top { display: flex; gap: 16px; align-items: center; }
+.traffic-sign-card-top h3 { margin: 4px 0 0; font-size: 21px; letter-spacing: -.02em; }
+.traffic-sign-index { color: var(--primary); font-size: 11px; font-weight: 800; letter-spacing: .08em; }
+
+.traffic-sign-symbol { width: 66px; height: 66px; flex: 0 0 auto; display: grid; place-items: center; position: relative; font-weight: 900; font-size: 24px; }
+.traffic-sign-symbol.prohibition { border-radius: 50%; border: 8px solid #d93838; background: white; }
+.traffic-sign-symbol.mandatory { border-radius: 50%; background: #2367c8; border: 3px solid white; box-shadow: 0 0 0 1px #b8c6da; }
+.traffic-sign-symbol.warning { width: 72px; height: 64px; background: #e3443f; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.traffic-sign-symbol.warning::after { content: ""; position: absolute; inset: 8px 10px 7px; background: #f6d75b; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.traffic-sign-symbol.warning span { position: relative; z-index: 1; padding-top: 14px; color: #111; }
+.traffic-sign-symbol.indication { border-radius: 10px; background: #2367c8; border: 3px solid white; box-shadow: 0 0 0 1px #b8c6da; }
+.traffic-sign-symbol.supplementary { width: 76px; height: 54px; border-radius: 5px; background: white; border: 3px solid #222; color: #222; }
+
+.traffic-sign-purpose { margin: 0; color: var(--text); line-height: 1.65; }
+.traffic-sign-facts { margin: 0; display: grid; gap: 0; }
+.traffic-sign-facts div { display: grid; grid-template-columns: 94px minmax(0, 1fr); gap: 12px; padding: 12px 0; border-top: 1px solid #edf0f4; }
+.traffic-sign-facts dt { color: var(--muted); font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; }
+.traffic-sign-facts dd { margin: 0; line-height: 1.55; }
+.traffic-sign-examples { border-radius: 12px; background: #f7f9fc; padding: 14px 16px; }
+.traffic-sign-examples strong { font-size: 13px; }
+.traffic-sign-examples ul { margin: 9px 0 0; padding-left: 19px; color: var(--muted); display: grid; gap: 5px; line-height: 1.45; }
+
+.traffic-signs-note { border: 1px solid #ead6aa; background: #fffaf0; border-radius: 18px; padding: 24px; display: grid; gap: 10px; }
+.traffic-signs-note h2 { margin: 4px 0 0; font-size: 22px; }
+.traffic-signs-note p { margin: 0; color: #6e5831; line-height: 1.65; }
+
+@media (max-width: 900px) {
+  .traffic-signs-hero { grid-template-columns: 1fr; }
+  .traffic-signs-summary { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 700px) {
+  .traffic-signs-hero { padding: 24px 20px; }
+  .traffic-sign-groups { grid-template-columns: 1fr; }
+  .traffic-sign-card:last-child { grid-column: auto; }
+  .traffic-signs-summary { grid-template-columns: 1fr 1fr; }
+  .traffic-sign-card { padding: 18px; }
+  .traffic-sign-facts div { grid-template-columns: 1fr; gap: 5px; }
+}
+
+@media (max-width: 430px) {
+  .traffic-signs-summary { grid-template-columns: 1fr; }
+  .traffic-sign-card-top { align-items: flex-start; }
+}
