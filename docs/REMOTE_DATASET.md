@@ -1,80 +1,67 @@
 # Remote dataset lifecycle
 
-## Mục tiêu
-
-Ứng dụng dùng **hai dataset production độc lập**:
+Ứng dụng dùng hai production dataset độc lập:
 
 ```text
-VN_GPLX_600
-  → bộ 600 câu + ảnh câu hỏi
-
-VN_TRAFFIC_SIGNS
-  → catalog từng biển + ảnh biển báo
+VN_GPLX_600        → 600 câu + ảnh câu hỏi
+VN_TRAFFIC_SIGNS   → catalog từng biển + ảnh biển báo
 ```
 
-Hai dataset có manifest URL, version, checksum, SQLite metadata/table và AppData asset cache riêng. Update một dataset không được làm reload/import dataset còn lại.
+Mỗi dataset có manifest URL, version, provenance/content/asset SHA-256, SQLite metadata và AppData cache riêng.
 
-## Cấu hình build
+## Build configuration
 
 ```env
 VITE_QUESTIONS_MANIFEST_URL=https://data.example.com/lythuyetlaixe/questions/dataset-manifest.json
 VITE_TRAFFIC_SIGNS_MANIFEST_URL=https://data.example.com/lythuyetlaixe/traffic-signs/manifest.json
 ```
 
-`VITE_DATASET_MANIFEST_URL` chỉ còn là compatibility fallback cho bộ 600 câu cũ.
+`VITE_DATASET_MANIFEST_URL` chỉ là legacy fallback cho questions. Production URL phải HTTPS; HTTP chỉ cho localhost development.
 
-Production URL phải HTTPS. HTTP chỉ cho localhost development.
+## Shared SQLite write discipline
+
+Hai bootstrap có thể download/verify song song nhưng cùng dùng `sqlite:lythuyetlaixe.db`. Application-level mutation queue serialize importer/progress/exam/reset writes để transaction boundaries không bị xen bởi feature khác.
+
+Read queries vẫn có thể chạy độc lập.
 
 ---
 
 # Dataset 1 — 600 câu
 
-## Runtime flow
+Runtime:
 
 ```text
 questions/dataset-manifest.json
         ↓
-validate manifest/version/provenance/URL/size
+manifest URL/version/provenance/checksum validation
         ↓
-questions.json
+releases/<version>/questions.json
         ↓
-SHA-256 + runtime contract validation
+bounded SHA-256 + runtime 600-question validation
         ↓
-assets.zip (nếu có)
+releases/<version>/assets.zip
         ↓
 safe extract → $APPDATA/dataset-assets/<version>/
         ↓
-SQLite transaction
+serialized SQLite transaction
         ↓
 Learning / Exam / Review / Statistics offline
 ```
 
-Nếu SQLite import thất bại, asset version mới được rollback. Version cũ vẫn hoạt động.
-
-### Integrity
+Integrity metadata:
 
 ```text
-sourceSha256  = SHA-256 PDF chính thức
-contentSha256 = SHA-256 questions.json
-assetSha256   = SHA-256 assets.zip
+sourceSha256  = official source PDF SHA-256
+contentSha256 = installed questions.json SHA-256
+assetSha256   = installed assets.zip SHA-256
 ```
 
-Runtime importer kiểm tra:
+Importer validates exact 600 IDs, category ranges, exact 60 critical IDs, sourceVersion, licenses, 2–4 answers, exactly one correct answer and safe image paths.
 
-- đúng `VN_GPLX_600` / production stage;
-- source SHA-256 hợp lệ;
-- đúng 600 ID;
-- category đúng theo khoảng ID;
-- đúng chính xác 60 câu điểm liệt;
-- sourceVersion;
-- 2–4 đáp án A–D và chính xác một đáp án đúng;
-- hạng GPLX hợp lệ;
-- image path an toàn.
-
-### Publisher
+Publisher:
 
 ```powershell
-pnpm dataset:publish
+pnpm dataset:finalize
 ```
 
 Output:
@@ -82,70 +69,55 @@ Output:
 ```text
 dist/dataset/
 ├── dataset-manifest.json
-├── questions.json
-└── assets.zip
+└── releases/
+    └── <version>/
+        ├── questions.json
+        └── assets.zip   # when referenced
 ```
 
-Upload payload trước, manifest cuối.
+Publisher refuses different bytes under an existing release version.
 
 ---
 
-# Dataset 2 — Catalog biển báo
+# Dataset 2 — Traffic signs
 
-## Runtime flow
+Runtime:
 
 ```text
 traffic-signs/manifest.json
         ↓
-validate manifest/version/source provenance
+manifest URL/version/signCount/provenance/checksum validation
         ↓
-traffic-signs.json
+releases/<version>/traffic-signs.json
         ↓
-SHA-256 + catalog validation
+bounded SHA-256 + runtime catalog validation
         ↓
-traffic-sign-assets.zip (nếu có)
+releases/<version>/traffic-sign-assets.zip
         ↓
 safe extract → $APPDATA/traffic-sign-assets/<version>/
         ↓
-SQLite transaction
+serialized SQLite transaction
         ↓
-search/filter/detail offline
+search/filter/pagination/detail offline
 ```
 
-Catalog biển báo không phụ thuộc 600 câu. Nếu catalog chưa được cấu hình/tải, phần kiến thức 5 nhóm built-in vẫn dùng được.
-
-### Integrity
+Integrity metadata:
 
 ```text
-sourceSha256  = SHA-256 tài liệu/quy chuẩn nguồn
-contentSha256 = SHA-256 traffic-signs.json
-assetSha256   = SHA-256 traffic-sign-assets.zip
+sourceSha256  = source regulation/document SHA-256
+contentSha256 = installed traffic-signs.json SHA-256
+assetSha256   = installed traffic-sign-assets.zip SHA-256
 ```
 
-Runtime importer kiểm tra:
+Catalog validation includes identity/stage/version/validFrom, `sourceDocument`, maximum record count, unique safe code, known group, required name/meaning/sourceVersion, typed optional fields/string arrays and safe image paths.
 
-- đúng `VN_TRAFFIC_SIGNS` / production stage;
-- version/validFrom hợp lệ;
-- `sourceDocument` + source SHA-256;
-- code biển unique, path-safe;
-- group chỉ thuộc 5 nhóm hỗ trợ;
-- name/meaning/sourceVersion bắt buộc;
-- exceptions/keywords là string arrays;
-- image path relative và extension cho phép.
-
-### Publisher
+Local source/status/finalize:
 
 ```powershell
-pnpm signs:validate
-pnpm signs:publish
-```
-
-Input:
-
-```text
-data/traffic-signs/processed/
-├── traffic-signs.json
-└── assets/
+pnpm signs:source:download
+pnpm signs:status
+# build verified traffic-signs.json + assets
+pnpm signs:finalize
 ```
 
 Output:
@@ -153,76 +125,80 @@ Output:
 ```text
 dist/traffic-signs/
 ├── manifest.json
-├── traffic-signs.json
-└── traffic-sign-assets.zip
+└── releases/
+    └── <version>/
+        ├── traffic-signs.json
+        └── traffic-sign-assets.zip   # when referenced
 ```
 
-Không tạo record production bằng suy đoán. Tên/ý nghĩa/phạm vi/ngoại lệ/hình phải có provenance chính thức.
+Traffic-sign failure does not block the app. Built-in 5-group knowledge stays available independently.
 
 ---
 
-# Storage local
+# Immutable update and self-heal
+
+For either dataset:
 
 ```text
-SQLite: lythuyetlaixe.db
+same version + same checksums + healthy local state
+→ use local cache
 
-Question metadata:
+same version + same checksums + missing local asset/rows
+→ re-download exact package and self-heal
+
+same version + changed remote checksum
+→ reject overwrite, keep local snapshot, warn
+
+new version
+→ verify/install/import, then cleanup old asset version
+```
+
+If asset installation succeeds but database import fails, the new asset directory is removed and the previous local snapshot remains active.
+
+# Local storage
+
+```text
+SQLite: sqlite:lythuyetlaixe.db
+
+Questions:
   dataset_metadata
-Question data:
   categories/questions/answers/question_license_types/...
-Question assets:
   $APPDATA/dataset-assets/<version>/
 
-Traffic-sign metadata:
+Traffic signs:
   traffic_sign_metadata
-Traffic-sign data:
   traffic_signs
-Traffic-sign assets:
   $APPDATA/traffic-sign-assets/<version>/
 ```
 
-User progress/bookmark/exam history chỉ liên quan bộ câu hỏi và không bị xóa khi catalog biển báo update.
+Question dataset updates preserve progress/bookmark/exam history. Traffic-sign updates never modify those user tables.
 
-# R2 layout đề xuất
+# R2 publication
+
+Target:
 
 ```text
 lythuyetlaixe/
 ├── questions/
 │   ├── dataset-manifest.json
-│   └── releases/
-│       └── <version>/...
+│   └── releases/<version>/...
 └── traffic-signs/
     ├── manifest.json
-    └── releases/
-        └── <version>/...
+    └── releases/<version>/...
 ```
 
-Có thể đặt cả hai root trên cùng R2 custom domain để đơn giản CORS/CSP. Hai manifest vẫn độc lập.
+For each dataset upload all `releases/<version>/...` payload objects first, verify they are publicly readable, then replace the root manifest last.
 
-## Publish an toàn
+Detailed deployment policy: [`R2_DEPLOYMENT.md`](./R2_DEPLOYMENT.md).
 
-Cho mỗi dataset:
+# Network/security
 
-1. tạo version mới;
-2. validate local;
-3. upload JSON/assets version mới;
-4. kiểm tra public GET;
-5. upload/replace manifest **cuối cùng**.
+- HTTPS required outside localhost development.
+- Payload URLs must remain same-origin with their manifest.
+- Downloads have hard compressed/content limits.
+- ZIP extraction has path/type/file-count/uncompressed-size limits.
+- Tauri FS capability and asset protocol are scoped to the two application asset roots only.
+- Web Fetch currently requires suitable read-only CORS from the final data origin.
+- Production CSP currently allows generic HTTPS until the final host is selected; scope `connect-src` to the exact R2 custom-domain origin before public release.
 
-Version đã phát hành là immutable. Same version + checksum khác sẽ không overwrite local snapshot.
-
-# Network / CSP
-
-Hiện production CSP cho `https:` chung vì host cuối chưa chốt. Sau khi cấu hình R2 custom domain, scope `connect-src` về đúng origin, ví dụ:
-
-```text
-https://data.example.com
-```
-
-Transport hiện dùng Web Fetch API nên R2/custom domain cần CORS GET/HEAD phù hợp.
-
-# Trust model
-
-SHA-256 chứng minh payload khớp manifest. HTTPS + quyền kiểm soát domain/storage là lớp trust hiện tại.
-
-Nâng cấp tùy chọn sau 1.0: signed manifest với private key ở release pipeline và public key verify trong app.
+SHA-256 proves payload integrity relative to the manifest. HTTPS/domain control is the current publisher trust model; signed manifests remain an optional post-1.0 hardening step.
