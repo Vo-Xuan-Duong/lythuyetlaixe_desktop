@@ -13,6 +13,7 @@ sys.path.insert(0, str(TOOLS_DIR))
 from publish_dataset import publish  # noqa: E402
 
 SOURCE_SHA256 = "c" * 64
+VERSION = "2025.06"
 
 
 def question(question_id: int, image: str | None = None) -> dict:
@@ -22,7 +23,7 @@ def question(question_id: int, image: str | None = None) -> dict:
         "category": "GENERAL_RULES",
         "critical": False,
         "licenses": ["B"],
-        "sourceVersion": "2025.06",
+        "sourceVersion": VERSION,
         "image": image,
         "answers": [
             {"key": "A", "content": "Đúng", "correct": True},
@@ -34,7 +35,7 @@ def question(question_id: int, image: str | None = None) -> dict:
 def dataset(questions: list[dict]) -> dict:
     return {
         "dataset": "VN_GPLX_600",
-        "version": "2025.06",
+        "version": VERSION,
         "validFrom": "2025-06-01",
         "stage": "production",
         "sourceSha256": SOURCE_SHA256,
@@ -43,7 +44,7 @@ def dataset(questions: list[dict]) -> dict:
 
 
 class PublishDatasetTests(unittest.TestCase):
-    def test_builds_manifest_and_zip_for_referenced_images(self) -> None:
+    def test_builds_versioned_manifest_and_zip_for_referenced_images(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             source = root / "questions.json"
@@ -64,9 +65,13 @@ class PublishDatasetTests(unittest.TestCase):
             published_dataset = json.loads(dataset_path.read_text(encoding="utf-8"))
 
             self.assertIsNotNone(asset_path)
+            self.assertEqual(dataset_path, output_dir / "releases" / VERSION / "questions.json")
+            self.assertEqual(manifest_path, output_dir / "dataset-manifest.json")
+            self.assertEqual(asset_path, output_dir / "releases" / VERSION / "assets.zip")
+            self.assertEqual(manifest["datasetUrl"], f"releases/{VERSION}/questions.json")
             self.assertEqual(manifest["sourceSha256"], SOURCE_SHA256)
             self.assertEqual(published_dataset["sourceSha256"], SOURCE_SHA256)
-            self.assertEqual(manifest["assets"]["url"], "assets.zip")
+            self.assertEqual(manifest["assets"]["url"], f"releases/{VERSION}/assets.zip")
             self.assertEqual(manifest["assets"]["format"], "zip")
             self.assertEqual(manifest["assets"]["fileCount"], 1)
             self.assertEqual(len(manifest["assets"]["sha256"]), 64)
@@ -74,6 +79,24 @@ class PublishDatasetTests(unittest.TestCase):
             with zipfile.ZipFile(asset_path) as archive:
                 self.assertEqual(archive.namelist(), ["images/q301.webp"])
                 self.assertEqual(archive.read("images/q301.webp"), b"image-bytes")
+
+    def test_rejects_changed_payload_for_existing_version(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "questions.json"
+            output_dir = root / "dist"
+            source.write_text(
+                json.dumps(dataset([question(index) for index in range(1, 601)])),
+                encoding="utf-8",
+            )
+            publish(source, root / "assets", output_dir)
+
+            changed = dataset([question(index) for index in range(1, 601)])
+            changed["questions"][0]["content"] = "Nội dung đã thay đổi"
+            source.write_text(json.dumps(changed), encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "bump dataset version"):
+                publish(source, root / "assets", output_dir)
 
     def test_rejects_missing_referenced_image(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
