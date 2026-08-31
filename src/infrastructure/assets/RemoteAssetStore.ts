@@ -31,6 +31,14 @@ function sanitizeRelativePath(value: string): string {
   return segments.join("/");
 }
 
+function safeVersion(value: string): string {
+  const normalized = sanitizeRelativePath(value);
+  if (normalized.includes("/")) {
+    throw new Error(`Dataset version cannot contain path separators: ${value}`);
+  }
+  return normalized;
+}
+
 function assertImageAsset(path: string): void {
   const lower = path.toLowerCase();
   const extension = [...ALLOWED_IMAGE_EXTENSIONS].find((candidate) => lower.endsWith(candidate));
@@ -42,6 +50,12 @@ function assertImageAsset(path: string): void {
 function parentDirectory(path: string): string | undefined {
   const index = path.lastIndexOf("/");
   return index > 0 ? path.slice(0, index) : undefined;
+}
+
+function clearResolvedVersion(version: string): void {
+  for (const key of [...resolvedUrlCache.keys()]) {
+    if (key.startsWith(`${version}:`)) resolvedUrlCache.delete(key);
+  }
 }
 
 export interface AssetInstallResult {
@@ -86,13 +100,9 @@ export async function installAssetArchive(
   zipBytes: Uint8Array,
   expectedFileCount?: number,
 ): Promise<AssetInstallResult> {
-  const safeVersion = sanitizeRelativePath(version);
-  if (safeVersion.includes("/")) {
-    throw new Error(`Dataset version cannot contain path separators: ${version}`);
-  }
-
+  const versionName = safeVersion(version);
   const files = inspectAssetArchive(zipBytes, expectedFileCount);
-  const versionRoot = `${ASSET_ROOT}/${safeVersion}`;
+  const versionRoot = `${ASSET_ROOT}/${versionName}`;
 
   if (await exists(versionRoot, { baseDir: BaseDirectory.AppData })) {
     await remove(versionRoot, { baseDir: BaseDirectory.AppData, recursive: true });
@@ -115,26 +125,33 @@ export async function installAssetArchive(
     throw error;
   }
 
-  for (const key of [...resolvedUrlCache.keys()]) {
-    if (key.startsWith(`${safeVersion}:`)) resolvedUrlCache.delete(key);
-  }
+  clearResolvedVersion(versionName);
 
   return {
-    version: safeVersion,
+    version: versionName,
     fileCount: files.length,
     uncompressedBytes,
   };
 }
 
+export async function removeAssetVersion(version: string): Promise<void> {
+  const versionName = safeVersion(version);
+  const versionRoot = `${ASSET_ROOT}/${versionName}`;
+  if (await exists(versionRoot, { baseDir: BaseDirectory.AppData })) {
+    await remove(versionRoot, { baseDir: BaseDirectory.AppData, recursive: true });
+  }
+  clearResolvedVersion(versionName);
+}
+
 export function resolveAssetUrl(version: string, imagePath: string): Promise<string> {
-  const safeVersion = sanitizeRelativePath(version);
+  const versionName = safeVersion(version);
   const safeImagePath = sanitizeRelativePath(imagePath);
-  const key = `${safeVersion}:${safeImagePath}`;
+  const key = `${versionName}:${safeImagePath}`;
   const cached = resolvedUrlCache.get(key);
   if (cached) return cached;
 
   const resolved = (async () => {
-    const relativePath = `${ASSET_ROOT}/${safeVersion}/${safeImagePath}`;
+    const relativePath = `${ASSET_ROOT}/${versionName}/${safeImagePath}`;
     const absolutePath = await join(await appDataDir(), relativePath);
     return convertFileSrc(absolutePath);
   })();
