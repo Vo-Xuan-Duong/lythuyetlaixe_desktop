@@ -1,0 +1,10 @@
+.settings-preference-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.settings-preference-row > div { display: grid; gap: 4px; }
+.settings-preference-row span { color: var(--muted); font-size: 13px; }
+.settings-preference-row select { min-width: 180px; border: 1px solid var(--border); border-radius: 10px; background: white; color: var(--text); padding: 10px 12px; font: inherit; }
+.settings-preference-row select:focus { outline: 2px solid rgba(32, 86, 215, .15); border-color: var(--primary); }
+
+@media (max-width: 700px) {
+  .settings-preference-row { align-items: stretch; flex-direction: column; }
+  .settings-preference-row select { width: 100%; }
+}
