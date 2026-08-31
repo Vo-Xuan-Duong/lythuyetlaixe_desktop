@@ -2,404 +2,370 @@
 
 > Repository: `Vo-Xuan-Duong/lythuyetlaixe_desktop`
 >
-> Chiến lược: **Windows Desktop trước → Android sau**, dùng chung Tauri 2, domain, SQLite, dataset contract và phần lớn UI.
+> Trạng thái cập nhật: **31/08/2026**.
 >
-> Cập nhật trạng thái: **31/08/2026**.
+> Chiến lược: **Windows Desktop production trước → Android sau**.
 >
-> Quy ước: `[x]` nghĩa là **đã có code**. Những hạng mục cần dữ liệu thật, build hoặc thiết bị vẫn được ghi rõ `LOCAL VERIFY`, `DATA BLOCKER` hoặc `DEVICE VERIFY`; không mặc định coi là production-ready chỉ vì đã implement.
+> `[x]` = đã có code/static implementation. Các mục `DATA`, `LOCAL VERIFY`, `DEVICE VERIFY`, `DEPLOYMENT` chỉ được coi hoàn tất sau khi chạy/xác minh thực tế.
 
 ## 1. Mục tiêu sản phẩm
 
-Ứng dụng phải hỗ trợ:
-
-- học toàn bộ 600 câu theo chủ đề;
+- học toàn bộ bộ 600 câu theo 6 chủ đề;
 - học riêng 60 câu điểm liệt;
 - thi thử theo hạng GPLX và thời gian hiệu lực;
-- lưu tiến độ, câu sai, bookmark và lịch sử thi;
-- xếp hạng câu yếu và spaced review;
-- hoạt động offline sau lần cài dữ liệu đầu tiên;
-- dataset có version, provenance, checksum và validator;
-- cập nhật dataset độc lập với binary app;
-- mở rộng Android mà không viết lại business logic.
+- lưu progress/mastery/câu sai/bookmark/lịch sử thi;
+- spaced review + weak-question ranking;
+- kiến thức 5 nhóm biển báo luôn có sẵn;
+- catalog từng biển từ QCVN chính thức;
+- hoạt động offline sau lần cài data đầu tiên;
+- questions và traffic-sign data cập nhật độc lập với binary app;
+- Windows installer trước, Android sau.
 
-## 2. Source of truth
-
-Dữ liệu production chỉ lấy từ tài liệu chính thức của **Cục Cảnh sát giao thông — Bộ Công an**.
-
-Nguồn và provenance nằm tại:
-
-- `docs/DATA_SOURCE.md`;
-- `docs/EXAM_CONFIG.md`;
-- `data/source/source-manifest.json`.
-
-Nguyên tắc:
-
-1. Không lấy app/web bên thứ ba làm nguồn đáp án.
-2. Không dùng AI để đoán đáp án chính thức.
-3. Dataset chưa vượt promotion gate + production validator không được phát hành.
-4. Mỗi dataset phải có `version`, `validFrom`, checksum và provenance.
-5. Version dataset đã phát hành là bất biến; thay đổi nội dung phải tạo version mới.
-6. Ảnh biển báo/sa hình phải qua image review; không crop vùng đáp án có underline.
-
-## 3. Stack
+## 2. Stack
 
 - Tauri 2 + Rust.
 - React 19 + TypeScript + Vite.
-- SQLite qua `@tauri-apps/plugin-sql`.
-- AppData asset cache qua `@tauri-apps/plugin-fs`.
-- Device preferences qua `@tauri-apps/plugin-store`.
-- Native review reminder qua `@tauri-apps/plugin-notification`.
-- pnpm.
-- Python/PyMuPDF cho dataset tooling.
+- SQLite `@tauri-apps/plugin-sql`.
+- AppData assets `@tauri-apps/plugin-fs`.
+- Preferences `@tauri-apps/plugin-store`.
+- Native notifications `@tauri-apps/plugin-notification`.
+- pnpm `10.34.5`.
+- Python + PyMuPDF cho data tooling.
 
-## 4. Kiến trúc
-
-```text
-React UI
-   ↓
-Application / hooks
-   ↓
-Domain / services
-   ↓
-Repository contracts
-   ↓
-Infrastructure
-   ├─ SQLite repositories
-   ├─ Tauri FS / Store / Notification
-   ├─ Remote dataset bootstrap
-   └─ AppData asset cache
-```
-
-Business rule không đặt trực tiếp trong component nếu có thể tách thành domain/service/repository.
-
-Các phần dùng chung Desktop → Android:
-
-- Question/Answer models;
-- ExamConfig + Exam Engine;
-- progress/mastery/spaced review;
-- review ranking;
-- SQLite schema;
-- remote dataset contract;
-- manifest/checksum validation;
-- AppData asset layout;
-- preferences contract.
-
-Platform-specific chỉ giữ ở boundary:
-
-- native back;
-- notification/permission;
-- installer/signing;
-- mobile lifecycle;
-- generated Android/iOS project.
-
-## 5. Dataset/runtime contract
-
-Luồng production:
+## 3. Kiến trúc data cuối
 
 ```text
-HTTPS dataset-manifest.json
-        ↓
-questions.json → size/SHA-256 → validate
-        ↓
-assets.zip → size/SHA-256/fileCount → safe unzip
-        ↓
-AppData/dataset-assets/<version>/...
-        ↓
-SQLite transaction import
-        ↓
-Offline runtime
+Application
+   │
+   ├── VN_GPLX_600
+   │   ├── VITE_QUESTIONS_MANIFEST_URL
+   │   ├── SQLite question/progress/exam tables
+   │   └── $APPDATA/dataset-assets/<version>/
+   │
+   └── VN_TRAFFIC_SIGNS
+       ├── VITE_TRAFFIC_SIGNS_MANIFEST_URL
+       ├── traffic_sign_metadata / traffic_signs
+       └── $APPDATA/traffic-sign-assets/<version>/
 ```
 
-Ứng dụng không bundle bộ 600 câu production vào installer.
+Hai dataset có version, provenance, content checksum, asset checksum, update lifecycle và cache độc lập.
 
-## 6. Database schema
+SQLite mutation của bootstrap/progress/exam/settings được serialize qua application write queue.
 
-Hiện có:
+## 4. Quy tắc source of truth
 
-- `dataset_metadata`;
-- `categories`;
-- `questions`;
-- `answers`;
-- `question_license_types`;
-- `user_progress`;
-- `bookmarks`;
-- `exam_sessions`;
-- `exam_answers`.
+### 600 câu
 
-Schema mới phải đi qua migration; không sửa DB production ad-hoc.
+Source of truth = tài liệu chính thức Cục CSGT/Bộ Công an.
+
+```text
+sourceSha256  = PDF CSGT chính thức
+contentSha256 = questions.json
+assetSha256   = assets.zip
+```
+
+Không dùng AI/web luyện thi để suy đoán đáp án production.
+
+### Traffic signs
+
+Source of truth = QCVN 41:2024/BGTVT từ đúng 5 phần Công báo Chính phủ:
+
+```text
+1359+1360
+1361+1362
+1363+1364
+1365+1366
+1367+1368
+```
+
+```text
+part SHA-256 × 5
+     ↓
+canonical bundle sourceSha256
+
+5 parts
+     ↓ merge local
+combined PDF
+     ↓
+combinedSha256 (extraction/review only)
+```
+
+Production sign record phải có source section/pages/reviewer/time. Production image phải có verified source/page/crop provenance.
 
 ---
 
-# 7. Roadmap và trạng thái
+# 5. Roadmap / trạng thái
 
-## Phase 0 — Khởi tạo dự án
+## Phase A — Application foundation
 
-- [x] Scaffold Tauri 2 + React + TypeScript + Vite.
-- [x] pnpm scripts.
-- [x] Rust/Tauri config.
-- [x] capability foundation.
-- [x] README/tài liệu chạy local.
-- [x] Workflow validation tồn tại nhưng đã chuyển **manual-only** theo policy phát triển hiện tại.
+- [x] Tauri 2 + React + TypeScript + Vite.
+- [x] Responsive desktop/mobile shell.
+- [x] SQLite migrations v1/v2.
+- [x] Tauri FS/SQL/Store/Notification integration.
+- [x] Shared SQLite write queue.
+- [x] Runtime Diagnostics.
+- [x] Production CSP foundation.
+- [x] GitHub validation manual-only.
 
-**Trạng thái:** DONE.
+**Trạng thái:** CODE COMPLETE.
 
-## Phase 1 — UI và domain foundation
-
-- [x] App Shell desktop.
-- [x] Sidebar desktop.
-- [x] Bottom navigation responsive.
-- [x] Dashboard.
-- [x] Question/Answer/Category/Progress domain.
-- [x] ExamConfig domain.
-- [x] Demo data cho browser preview.
-- [x] Các section Learning/Critical/Exam/Review/Bookmark/Statistics/Settings.
-
-**Trạng thái:** DONE.
-
-## Phase 2 — SQLite + local data foundation
-
-- [x] `@tauri-apps/plugin-sql`.
-- [x] initial migration.
-- [x] Question/Progress/LearningCatalog/ExamHistory repositories.
-- [x] DatasetImporter transaction + metadata/category/question/answer/license UPSERT.
-- [x] Update dataset giữ `user_progress` theo question ID.
-- [x] Query question theo hạng GPLX.
-- [x] Exam answers/history persistence.
-- [x] Exam result cập nhật `user_progress` để review queue nhận cả câu sai trong thi.
-- [x] Remote bootstrap thay cho bundle dataset.
-- [ ] Import đủ **600 câu production thật**. **DATA BLOCKER**.
-- [ ] Runtime integration verification migration/repository/import/update trên Tauri local. **LOCAL VERIFY**.
-
-**Trạng thái:** CODE COMPLETE / REAL DATA + LOCAL VERIFY PENDING.
-
-## Phase 3 — Data pipeline 600 câu
-
-- [x] Official source manifest + provenance.
-- [x] Danh sách 60 câu điểm liệt.
-- [x] Downloader + SHA-256.
-- [x] PyMuPDF extractor giữ text spans/bbox/origin/images/vector drawings.
-- [x] Parser `questions.unverified.json` không đoán đáp án.
-- [x] Underline geometry answer resolver + score/margin.
-- [x] `answer-review.json`.
-- [x] Manual answer review có provenance.
-- [x] Chặn manual override mâu thuẫn nếu không explicit.
-- [x] Safe image candidate extractor chỉ xét graphics trước đáp án đầu tiên.
-- [x] `image-review.json`.
-- [x] Manual image review: accept-existing / accept-candidate / crop / none.
-- [x] `imageNeedsVerification` gate.
-- [x] Promotion gate.
-- [x] Final production validator: 600 ID, 60 critical, 1 correct answer, answer/image verification, safe image paths.
-- [x] Remote publisher tạo `questions.json + assets.zip + dataset-manifest.json`.
-- [x] Runtime manifest/checksum/assets install/import architecture.
-- [ ] Chạy pipeline trên PDF chính thức thật. **LOCAL DATA WORK**.
-- [ ] Hiệu chỉnh underline threshold từ số liệu thật. **DATA WORK**.
-- [ ] Manual verify các answer unresolved. **DATA WORK**.
-- [ ] Visual/manual verify toàn bộ image candidate cần review. **DATA WORK**.
-- [ ] Tạo `data/processed/questions.json` production thật. **DATA BLOCKER**.
-- [ ] Validator production chạy thành công local. **LOCAL VERIFY**.
-- [ ] Upload package lên HTTPS endpoint cố định. **DEPLOYMENT BLOCKER**.
-- [ ] First-run import đủ 600 câu + ảnh trên app thật. **LOCAL VERIFY**.
-
-**Definition of Done:** source chính thức → 600 câu verified → images verified → validator pass local → package HTTPS → app import 600 câu + offline hoạt động.
-
-## Phase 4 — Learning mode
+## Phase B — Learning / Critical / Review
 
 - [x] 6 chủ đề.
-- [x] Catalog theo chủ đề.
-- [x] Filter all/unlearned/learned/wrong/bookmarked.
-- [x] Pagination + responsive.
-- [x] LearningSession từ SQLite.
-- [x] Previous/Next toàn bộ dataset hoặc theo custom review sequence.
-- [x] Chấm đáp án.
-- [x] Bookmark.
-- [x] correct/wrong/progress persistence.
-- [x] Mastery 0–4.
-- [x] `nextReviewAt` spaced repetition.
-- [x] Android/native Back từ LearningSession về collection nguồn.
-- [ ] Explanation production đáng tin cậy. **DATA BLOCKER**.
-- [ ] Full E2E với dataset 600 câu thật. **LOCAL VERIFY**.
+- [x] catalog/filter/pagination.
+- [x] LearningSession.
+- [x] correct/wrong attempts.
+- [x] mastery 0–4.
+- [x] `nextReviewAt`.
+- [x] bookmarks.
+- [x] 60 câu điểm liệt.
+- [x] due/weak/wrong review queues.
+- [x] sequence-aware navigation.
+- [x] Android/native Back handling.
 
-**Trạng thái:** FEATURE CODE COMPLETE / DATA VERIFY PENDING.
+Còn:
 
-## Phase 5 — 60 câu điểm liệt
-
-- [x] Trang riêng.
-- [x] Tổng tiến độ đã học/mastery 4/câu từng sai.
-- [x] Luyện toàn bộ 60 câu.
-- [x] Ôn riêng câu điểm liệt từng sai.
-- [x] Điều hướng theo critical sequence.
-- [ ] Verify với đúng 60 ID trong production dataset thật. **DATA/LOCAL VERIFY**.
+- [ ] E2E với 600 câu production. **DATA + LOCAL VERIFY**.
+- [ ] explanation production nếu có nguồn đáng tin cậy. **DATA OPTIONAL**.
 
 **Trạng thái:** FEATURE CODE COMPLETE.
 
-## Phase 6 — Exam engine
+## Phase C — Exam Engine
 
-- [x] Config theo hạng GPLX + thời gian hiệu lực.
-- [x] Quota theo cấu trúc bộ 600 câu hiện hành.
-- [x] Chặn dùng dataset `2025.06` sau `28/02/2027` nếu chưa có config/dataset tương thích.
-- [x] Question selection + RNG injection.
-- [x] Không trùng câu + critical pool riêng.
-- [x] Timer.
-- [x] Navigator.
-- [x] Submit/scoring.
-- [x] Critical fail rule.
-- [x] Lưu session + answers.
-- [x] Exam result cập nhật learning progress.
-- [x] Review chi tiết từng câu sau submit.
-- [x] Hiển thị user answer/correct answer/critical/image/explanation.
-- [x] Guard chống duplicate submit/history.
-- [x] Hạng GPLX mặc định lưu device preference.
-- [x] Android Back trong đề có confirm; result Back về exam setup.
-- [ ] E2E đề thật theo từng hạng với 600 câu production. **DATA/LOCAL VERIFY**.
+- [x] cấu hình hạng GPLX.
+- [x] date-effective config.
+- [x] quota selection.
+- [x] critical pool/fail rule.
+- [x] RNG injection/no duplicates.
+- [x] timer/navigator/submit.
+- [x] history + answers persistence.
+- [x] exam answers → learning progress.
+- [x] result review từng câu.
+- [x] default license device preference.
+- [x] duplicate-submit guard.
+- [x] abandon/back confirmation.
+- [x] chặn dataset/config cũ ngoài thời gian tương thích.
 
-**Trạng thái:** FEATURE CODE COMPLETE / REAL DATA E2E PENDING.
+Còn:
 
-## Phase 7 — Review engine
-
-- [x] Queue đến hạn theo `nextReviewAt`.
-- [x] Weak-question ranking.
-- [x] Queue tất cả câu từng sai.
-- [x] Ưu tiên mastery thấp / accuracy thấp / wrong count cao.
-- [x] Spaced repetition.
-- [x] Bookmark offline.
-- [x] Review sequence trong LearningSession.
-- [x] Câu sai từ Thi thử cũng đi vào progress/review.
+- [ ] E2E đề thật theo từng hạng. **DATA + LOCAL VERIFY**.
 
 **Trạng thái:** FEATURE CODE COMPLETE.
 
-## Phase 8 — Statistics / Dashboard
+## Phase D — Statistics / Settings
 
-- [x] Tổng tiến độ.
-- [x] Accuracy tổng.
-- [x] Accuracy theo chủ đề.
-- [x] Mastered count.
-- [x] Due review count.
-- [x] Critical progress.
-- [x] Weakest questions.
-- [x] Exam history.
-- [x] Pass rate.
-- [x] Average exam score.
-- [x] Dashboard đọc snapshot SQLite thay cho demo khi production dataset ready.
+- [x] overall/category accuracy.
+- [x] learned/mastered/due counts.
+- [x] critical progress.
+- [x] weakest questions.
+- [x] exam history/pass-rate/average.
+- [x] Dashboard SQLite.
+- [x] Settings cho hai dataset.
+- [x] reset progress/bookmark/exam/all user data.
+- [x] runtime/app metadata.
+- [x] review reminder settings.
+- [x] Runtime Diagnostics.
 
 **Trạng thái:** FEATURE CODE COMPLETE.
 
-## Phase 9 — Windows Desktop production
+## Phase E — 600-question production pipeline
 
-- [x] App icon foundation.
-- [x] NSIS installer configuration tách trong `tauri.windows.conf.json`.
-- [x] Local Windows release command.
-- [x] `release:check` kiểm tra version package/Tauri/Cargo đồng bộ.
-- [x] `CHANGELOG.md` + local release checklist.
-- [x] Semantic version/update strategy.
-- [x] Dataset update độc lập với binary app.
-- [x] GitHub validation workflow chuyển manual-only; không tự chạy khi push/PR.
-- [ ] `pnpm install` + build frontend/Rust local sau các dependency mới. **LOCAL VERIFY**.
-- [ ] Build NSIS thực tế. **LOCAL VERIFY**.
-- [ ] Test install/uninstall/upgrade Windows 10. **LOCAL VERIFY**.
-- [ ] Test install/uninstall/upgrade Windows 11. **LOCAL VERIFY**.
-- [ ] Code signing Windows. **OPTIONAL trước public distribution**.
+- [x] official source manifest.
+- [x] downloader + hash.
+- [x] PyMuPDF extractor.
+- [x] question parser.
+- [x] exact 60 critical IDs.
+- [x] underline answer resolver.
+- [x] manual answer review gate.
+- [x] safe image candidate extractor.
+- [x] manual image review gate.
+- [x] promotion gate.
+- [x] production validator.
+- [x] immutable versioned publisher.
+- [x] runtime remote manifest/content/assets validation.
+- [x] offline/update/self-heal logic.
+- [x] dataset status/review workspace.
 
-**Trạng thái:** RELEASE INFRA CODED / LOCAL BUILD VERIFY PENDING.
+Còn:
 
-## Phase 10 — Android
+- [ ] chạy PDF CSGT thật. **DATA LOCAL**.
+- [ ] calibrate underline nếu dữ liệu thật yêu cầu. **DATA LOCAL**.
+- [ ] manual unresolved answer review. **DATA LOCAL**.
+- [ ] manual image verification. **DATA LOCAL**.
+- [ ] tạo production 600 questions package. **DATA**.
 
-### Foundation đã code
+**Definition of Done:** `dataset:finalize` tạo package production verified, sau đó app import đúng 600 câu/60 critical và dùng offline.
 
-- [x] Responsive mobile layout + bottom navigation foundation.
-- [x] Platform-specific Tauri config: `tauri.android.conf.json`.
-- [x] Android `minSdkVersion = 24`.
-- [x] AppData-based dataset asset path, không hard-code Windows path.
-- [x] Native preference store bằng `@tauri-apps/plugin-store` + browser/localStorage migration fallback.
-- [x] Native Android Back handler stack.
-- [x] Learning/Review/Critical/Statistics child flow Back handling.
-- [x] Exam Back handling + abandon confirmation.
-- [x] Native notification permission/scheduling service.
-- [x] Settings UI cho nhắc ôn + test notification.
-- [x] Local scripts cho Android debug APK / release APK / release AAB.
-- [x] `docs/ANDROID.md` bring-up/release checklist.
+## Phase F — Traffic-sign knowledge/catalog
 
-### Cần môi trường/thiết bị local
+### UI/runtime
 
-- [ ] Cài Android Studio/JDK/SDK/NDK/Rust Android targets. **LOCAL ENV**.
-- [ ] `pnpm tauri:android:init`. **LOCAL VERIFY**.
-- [ ] Verify SQL plugin/migration trên Android. **DEVICE VERIFY**.
-- [ ] Verify FS/AppData asset cache + asset protocol. **DEVICE VERIFY**.
-- [ ] Verify Tauri Store preference. **DEVICE VERIFY**.
-- [ ] Verify first-run remote dataset + offline startup. **DEVICE VERIFY**.
-- [ ] Verify touch/responsive trên nhiều kích thước màn hình. **DEVICE VERIFY**.
-- [ ] Verify Android system Back toàn bộ flow. **DEVICE VERIFY**.
-- [ ] Verify notification permission/test/schedule/cancel/restart. **DEVICE VERIFY**.
-- [ ] Build/cài APK debug. **LOCAL/DEVICE VERIFY**.
-- [ ] Cấu hình Android signing/keystore.
-- [ ] Build APK release.
-- [ ] Build AAB release.
-- [ ] Test app upgrade giữ SQLite/progress/assets/preferences.
+- [x] kiến thức 5 nhóm built-in.
+- [x] section/navigation riêng.
+- [x] catalog SQLite độc lập.
+- [x] search code/name/meaning/keyword.
+- [x] filter 5 nhóm.
+- [x] pagination.
+- [x] AppData images.
+- [x] independent bootstrap/offline/update/self-heal.
 
-**Trạng thái:** CROSS-PLATFORM FOUNDATION CODED / ANDROID PROJECT + DEVICE VERIFY PENDING.
+### Official-source tooling
 
-## Phase 11 — Cloud sync — tùy chọn
+- [x] legal-basis provenance.
+- [x] exact 5-part Gazette source manifest.
+- [x] safe official downloader.
+- [x] per-part SHA-256.
+- [x] canonical bundle SHA-256.
+- [x] combined parsing PDF + `combinedSha256`.
+- [x] source verification markers.
+- [x] exact issue-sequence gate.
+- [x] official text candidate extractor.
+- [x] variant sign-code parser including comma codes.
+- [x] exact-caption image candidate extractor.
+- [x] manual review JSON generator.
+- [x] offline review workspace.
+- [x] image candidate gallery.
+- [x] manual QCVN crop UI.
+- [x] processed image selection/crop tool.
+- [x] per-sign provenance gate.
+- [x] image provenance gate.
+- [x] exact official candidate code coverage gate.
+- [x] local validator.
+- [x] immutable versioned publisher.
+- [x] runtime importer trust boundary.
+- [x] runtime manifest `sourcePartCount = 5` gate.
+- [x] multipart/review `signs:status`.
 
-Chỉ bắt đầu sau khi offline Desktop production ổn định.
+Còn:
 
-- [ ] Account/identity.
-- [ ] Sync progress.
-- [ ] Sync bookmark.
-- [ ] Sync preferences cần thiết.
-- [ ] Conflict resolution.
-- [ ] Privacy/security model.
+- [ ] download/verify 5 PDF thật. **DATA LOCAL**.
+- [ ] extract/review all real candidate records. **DATA LOCAL**.
+- [ ] verify processed images/crops. **DATA LOCAL**.
+- [ ] tạo `traffic-signs.json` + assets production. **DATA**.
 
-**Trạng thái:** DEFERRED.
+**Definition of Done:** official 5-part bundle → 100% reviewed records/images → `signs:finalize` → runtime import/offline catalog.
+
+## Phase G — Remote distribution / Cloudflare R2
+
+- [x] two-manifest architecture.
+- [x] immutable `releases/<version>` publishers.
+- [x] HTTPS/same-origin runtime rules.
+- [x] hard download/archive limits.
+- [x] R2 deployment documentation.
+- [x] static `project:status` preflight.
+- [x] strict `release:candidate:check`.
+
+Còn:
+
+- [ ] create R2 bucket/custom domain. **DEPLOYMENT**.
+- [ ] upload questions package. **DEPLOYMENT**.
+- [ ] upload traffic-sign package. **DEPLOYMENT**.
+- [ ] CORS GET/HEAD. **DEPLOYMENT**.
+- [ ] `.env.production` two URLs. **DEPLOYMENT**.
+- [ ] lock CSP `connect-src` to exact origin. **DEPLOYMENT**.
+
+## Phase H — Windows release candidate
+
+- [x] NSIS platform config.
+- [x] local release command.
+- [x] version synchronization check.
+- [x] update/release documentation.
+
+Còn:
+
+- [ ] `pnpm install` + lockfiles. **LOCAL**.
+- [ ] `pnpm build`. **LOCAL VERIFY**.
+- [ ] `pnpm test`. **LOCAL VERIFY**.
+- [ ] `pnpm data:test`. **LOCAL VERIFY**.
+- [ ] `cargo check`. **LOCAL VERIFY**.
+- [ ] `release:candidate:check` zero blockers. **LOCAL/DEPLOYMENT**.
+- [ ] first-run/offline/update/self-heal E2E. **LOCAL VERIFY**.
+- [ ] NSIS build/install/upgrade Windows 10/11. **LOCAL VERIFY**.
+- [ ] Windows code signing. **OPTIONAL trước public distribution**.
+
+**Definition of Done:** production data + R2 + clean first-run/offline/update + zero static preflight blockers + local checks + NSIS install/upgrade verified.
+
+## Phase I — Android
+
+Foundation code:
+
+- [x] Android platform config.
+- [x] min SDK config.
+- [x] platform-neutral AppData.
+- [x] Store preferences.
+- [x] native Back stack.
+- [x] exam abandon handling.
+- [x] notification service/settings.
+- [x] APK/AAB scripts.
+- [x] Android documentation.
+
+Còn:
+
+- [ ] Android Studio/JDK/SDK/NDK/Rust targets. **LOCAL ENV**.
+- [ ] `tauri android init`. **LOCAL**.
+- [ ] migration v2/device verification. **DEVICE VERIFY**.
+- [ ] two-dataset first-run/offline. **DEVICE VERIFY**.
+- [ ] Store/Back/Notification. **DEVICE VERIFY**.
+- [ ] APK/AAB + signing. **LOCAL/DEVICE**.
+
+**Ưu tiên:** chỉ bắt đầu release Android sau khi Desktop release candidate ổn định.
+
+## Phase J — Post-1.0 optional
+
+- [ ] signed dataset manifests.
+- [ ] binary auto-updater.
+- [ ] cloud sync/account/conflict resolution.
+- [ ] analytics/crash reporting nếu cần.
 
 ---
 
-# 8. Local verification policy
-
-Theo workflow hiện tại, trợ lý **không tự chạy test/build/GitHub Action**. Việc xác minh được thực hiện trên máy local.
-
-Các nhóm kiểm tra cần chạy trước release:
-
-```powershell
-pnpm install
-pnpm test
-pnpm build
-cargo check --manifest-path src-tauri/Cargo.toml
-pnpm dataset:test
-pnpm release:check
-```
-
-Khi dataset production thật có sẵn:
-
-```powershell
-pnpm dataset:validate
-pnpm dataset:publish
-pnpm tauri:dev
-```
-
-Windows installer:
-
-```powershell
-pnpm release:windows:local
-```
-
-Android sau khi đã `tauri android init`:
-
-```powershell
-pnpm tauri:android:dev
-pnpm tauri:android:build:debug
-pnpm release:android:apk:local
-pnpm release:android:aab:local
-```
-
-## Trạng thái tổng quát
+# 6. Thứ tự hoàn thiện từ trạng thái hiện tại
 
 ```text
-Windows application features : CODE COMPLETE / LOCAL VERIFY PENDING
-Dataset tooling               : CODE COMPLETE / REAL DATA WORK PENDING
-Production 600-question data  : DATA BLOCKER
-Remote production endpoint    : DEPLOYMENT BLOCKER
-Windows installer             : CONFIGURED / LOCAL BUILD VERIFY PENDING
-Android shared foundation     : CODED
-Android generated project     : NOT INITIALIZED
-Android device verification   : PENDING
-Cloud sync                    : DEFERRED
+1. pnpm install + local compile/tests
+        ↓
+2. production 600-question data
+        ↓
+3. production traffic-sign data
+        ↓
+4. publish both packages to R2
+        ↓
+5. .env.production + exact CSP
+        ↓
+6. pnpm release:candidate:check
+        ↓
+7. clean first-run / offline / update / self-heal
+        ↓
+8. NSIS Windows 10/11 release candidate
+        ↓
+9. Android bring-up
 ```
+
+## 7. Local completion commands
+
+```powershell
+corepack enable
+pnpm install
+
+pnpm release:check
+pnpm build
+pnpm test
+pnpm data:test
+cargo check --manifest-path src-tauri/Cargo.toml
+
+pnpm dataset:prepare:download
+pnpm dataset:status
+
+pnpm signs:source:download
+pnpm signs:source:verify -- --reviewer "<name>"
+pnpm signs:candidates:official
+pnpm signs:candidates:images
+pnpm signs:review:prepare
+pnpm signs:review:workspace
+
+# after both production packages + R2 config exist
+pnpm project:status
+pnpm release:candidate:check
+```
+
+Chi tiết thao tác: [`docs/LOCAL_HANDOFF.md`](./docs/LOCAL_HANDOFF.md).
