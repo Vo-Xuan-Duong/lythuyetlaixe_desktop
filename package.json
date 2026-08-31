@@ -39,8 +39,11 @@
     "dataset:after-answer-review": "pnpm dataset:review && pnpm dataset:images && pnpm dataset:review-report && pnpm dataset:status",
     "dataset:finalize": "pnpm dataset:image-review && pnpm dataset:promote && pnpm dataset:validate && pnpm dataset:publish && pnpm dataset:status",
     "dataset:test": "python -m unittest discover -s tools/dataset/tests -p \"test_*.py\" -v",
+    "signs:source:download": "python tools/traffic-signs/download_source.py",
+    "signs:status": "node tools/traffic-signs/status.mjs",
     "signs:validate": "node tools/traffic-signs/validate.mjs",
     "signs:publish": "pnpm signs:validate && python tools/traffic-signs/publish.py",
+    "signs:finalize": "pnpm signs:validate && pnpm signs:publish && pnpm signs:status",
     "signs:test": "python -m unittest discover -s tools/traffic-signs/tests -p \"test_*.py\" -v",
     "data:test": "pnpm dataset:test && pnpm signs:test"
   },
