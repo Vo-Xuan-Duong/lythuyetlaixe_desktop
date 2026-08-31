@@ -4,6 +4,7 @@ import {
   installAssetArchive,
   removeAssetVersion,
 } from "../assets/RemoteAssetStore";
+import { withDatabaseWriteLock } from "./database";
 import {
   DatasetImporter,
   getLocalDatasetState,
@@ -88,7 +89,9 @@ export async function bootstrapDataset(): Promise<DatasetBootstrapStatus> {
       localState.version === manifest.version &&
       !normalizedSha256(localState.contentSha256)
     ) {
-      const migrated = await migrateLegacyContentChecksum(manifest.sha256);
+      const migrated = await withDatabaseWriteLock(() =>
+        migrateLegacyContentChecksum(manifest.sha256),
+      );
       if (migrated) {
         localState = await getLocalDatasetState();
       }
@@ -163,10 +166,12 @@ export async function bootstrapDataset(): Promise<DatasetBootstrapStatus> {
 
     let result;
     try {
-      result = await new DatasetImporter().import(dataset, {
-        contentSha256: manifest.sha256,
-        assetSha256: manifest.assets?.sha256 ?? null,
-      });
+      result = await withDatabaseWriteLock(() =>
+        new DatasetImporter().import(dataset, {
+          contentSha256: manifest.sha256,
+          assetSha256: manifest.assets?.sha256 ?? null,
+        }),
+      );
     } catch (error) {
       if (pendingAssetVersion) {
         await removeAssetVersion(pendingAssetVersion).catch(() => undefined);
