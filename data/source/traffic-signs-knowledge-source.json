@@ -1,0 +1,28 @@
+{
+  "knowledge": "VN_TRAFFIC_SIGNS",
+  "version": "QCVN41-2024",
+  "title": "Kiến thức phân loại biển báo hiệu đường bộ",
+  "regulation": "QCVN 41:2024/BGTVT",
+  "issuedUnder": "Thông tư 51/2024/TT-BGTVT",
+  "issuedDate": "2024-11-15",
+  "effectiveFrom": "2025-01-01",
+  "classificationArticle": "Điều 11",
+  "groups": [
+    "Biển báo cấm",
+    "Biển hiệu lệnh",
+    "Biển báo nguy hiểm và cảnh báo",
+    "Biển chỉ dẫn",
+    "Biển phụ, biển viết bằng chữ"
+  ],
+  "sources": [
+    {
+      "authority": "Cổng Thông tin điện tử Chính phủ",
+      "url": "https://vanban.chinhphu.vn/?classid=1&docid=211908&orggroupid=4&pageid=27160"
+    },
+    {
+      "authority": "Cơ sở dữ liệu quốc gia về văn bản pháp luật",
+      "url": "https://vbpl.vn/TW/Pages/vbpq-thuoctinh.aspx?ItemID=173121"
+    }
+  ],
+  "policy": "Built-in knowledge must be reviewed when the governing regulation is replaced or amended. It must not be used to invent official answers for the 600-question dataset."
+}
