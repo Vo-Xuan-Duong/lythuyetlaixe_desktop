@@ -21,6 +21,8 @@
     "release:android:apk:local": "pnpm release:check && pnpm tauri:android:build:apk",
     "release:android:aab:local": "pnpm release:check && pnpm tauri:android:build:aab",
     "release:check": "node tools/release/check_versions.mjs",
+    "project:status": "node tools/release/preflight.mjs",
+    "release:candidate:check": "node tools/release/preflight.mjs --strict",
     "dataset:status": "python tools/dataset/status.py",
     "dataset:review-report": "python tools/dataset/build_review_report.py",
     "dataset:validate": "node tools/dataset/validate.mjs data/processed/questions.json --images-root=data/processed/assets",
