@@ -1,6 +1,6 @@
 # Update strategy
 
-Application binary và dataset có version độc lập.
+Application binary, bộ 600 câu và catalog biển báo có version **độc lập**.
 
 ## 1. Application version
 
@@ -28,155 +28,195 @@ Kiểm tra local:
 pnpm release:check
 ```
 
-Desktop dùng NSIS installer build local:
+## 2. Question dataset version
 
-```powershell
-pnpm release:windows:local
+Dataset:
+
+```text
+VN_GPLX_600
 ```
 
-Binary auto-updater chưa bật ở giai đoạn đầu. App version mới được phân phối bằng installer mới.
-
-## 2. Dataset version
-
-Ví dụ:
+Ví dụ version:
 
 ```text
 2025.06
 2026.01
 ```
 
-Dataset version thay đổi khi nội dung production thay đổi:
+Thay version khi câu hỏi/đáp án/license/explanation/ảnh production thay đổi.
 
-- câu hỏi/đáp án;
-- metadata/license mapping;
-- explanation đã xác minh;
-- biển báo/sa hình/assets;
-- source/config contract có thay đổi tương thích.
-
-Remote package:
+Remote root:
 
 ```text
-https://<host>/lythuyetlaixe/
+/questions/
 ├── dataset-manifest.json
 ├── questions.json
 └── assets.zip
 ```
 
-## 3. Integrity / provenance
-
-Không trộn ba loại hash:
+Integrity:
 
 ```text
 sourceSha256  = official PDF SHA-256
-contentSha256 = installed questions.json SHA-256
-assetSha256   = installed assets.zip SHA-256
+contentSha256 = questions.json SHA-256
+assetSha256   = assets.zip SHA-256
 ```
 
-Manifest chứa `sourceSha256` + `sha256` của `questions.json`; optional `assets.sha256` cho archive ảnh.
+## 3. Traffic-sign dataset version
 
-Bootstrap cross-check provenance manifest ↔ JSON trước runtime import.
-
-## 4. Dataset activation
+Dataset:
 
 ```text
-manifest
-   ↓ validate HTTPS/same-origin/version/hash/provenance
-questions.json verify + runtime contract validate
-   ↓
-assets.zip verify + safe install (nếu có)
-   ↓
-SQLite transaction
-   ↓
-activate version mới
-   ↓
-cleanup asset version cũ
+VN_TRAFFIC_SIGNS
 ```
 
-Nếu asset đã cài nhưng SQLite import lỗi, asset version mới được rollback. Nếu máy có dataset local hợp lệ thì app tiếp tục dùng version cũ.
+Version độc lập, ví dụ:
+
+```text
+2025.01
+2026.01
+```
+
+Thay version khi catalog từng biển, tên, ý nghĩa, phạm vi, ngoại lệ, keyword hoặc ảnh thay đổi theo nguồn chính thức.
+
+Remote root:
+
+```text
+/traffic-signs/
+├── manifest.json
+├── traffic-signs.json
+└── traffic-sign-assets.zip
+```
+
+Integrity:
+
+```text
+sourceSha256  = source regulation/document SHA-256
+contentSha256 = traffic-signs.json SHA-256
+assetSha256   = traffic-sign-assets.zip SHA-256
+```
+
+## 4. Activation độc lập
+
+Question flow:
+
+```text
+question manifest
+→ questions.json verify
+→ question assets verify/install
+→ SQLite question transaction
+→ cleanup old question assets
+```
+
+Traffic-sign flow:
+
+```text
+traffic-sign manifest
+→ traffic-signs.json verify
+→ sign assets verify/install
+→ SQLite traffic_signs transaction
+→ cleanup old sign assets
+```
+
+Một flow fail không rollback hoặc thay đổi dataset còn lại.
 
 ## 5. Version bất biến
 
-Không được sửa payload mà giữ nguyên version:
+Không sửa payload mà giữ nguyên version.
+
+Ví dụ không hợp lệ:
 
 ```text
-2025.06 checksum A
-        ↓ sửa payload
-2025.06 checksum B   ← không hợp lệ
+traffic signs 2025.01 checksum A
+       ↓ sửa nội dung
+traffic signs 2025.01 checksum B
 ```
 
-Phải phát hành version mới:
+Phải phát hành version mới.
 
-```text
-2025.06
-   ↓
-2025.07
-```
+Runtime dùng `contentSha256 + assetSha256` làm package identity. `sourceSha256` chỉ là provenance.
 
-Runtime so `contentSha256 + assetSha256` cho immutable package identity. `sourceSha256` chỉ là provenance PDF, không dùng thay distribution checksum.
+## 6. Question legacy checksum migration
 
-## 6. Legacy checksum migration
+Development build cũ từng lưu nhầm `questions.json` checksum vào `dataset_metadata.sourceSha256`.
 
-Một số development build cũ từng lưu nhầm `questions.json` checksum vào metadata `sourceSha256`.
+Runtime chỉ migrate khi cùng version, thiếu `contentSha256` và hash cũ khớp chính xác remote manifest content SHA-256.
 
-Runtime chỉ migrate khi:
-
-- local cùng dataset version;
-- `contentSha256` chưa có;
-- giá trị `sourceSha256` cũ khớp chính xác `manifest.sha256`.
-
-Khi đó hash được chuyển sang `contentSha256` và source provenance cũ bị clear. Runtime không tự suy đoán PDF hash.
+Traffic-sign dataset là contract mới nên không có legacy migration này.
 
 ## 7. Database migration
 
 Dataset content update không đồng nghĩa SQLite schema migration.
 
-Nếu chỉ thay content trong contract hiện tại:
+Hiện:
 
-- giữ `user_progress` theo question ID;
-- giữ bookmark;
-- giữ exam history;
-- không thêm SQL migration.
+```text
+migration v1 → questions/progress/exam
+migration v2 → traffic_sign_metadata/traffic_signs
+```
 
-Nếu application version thay schema thì phải thêm migration mới, không sửa migration lịch sử đã phát hành.
+Nếu chỉ update content trong contract hiện tại thì không thêm migration.
 
-## 8. Compatibility
+Nếu app schema thay đổi, phải thêm migration mới; không sửa migration lịch sử đã phát hành.
 
-ExamConfig chỉ resolve trong khoảng thời gian/dataset tương thích.
+## 8. User data isolation
 
-Không dùng dataset cũ để giả lập quy định thi mới nếu source/format mới chưa được xác minh.
+Question update phải giữ:
 
-## 9. Release decision matrix
+- `user_progress`;
+- bookmark;
+- exam history.
 
-| Thay đổi | Dataset release | App installer mới |
-| --- | --- | --- |
-| Sửa text/đáp án đã xác minh | Có | Không |
-| Sửa/thêm ảnh | Có | Không |
-| Thêm explanation verified | Có | Không |
-| Thay UI | Không | Có |
-| Thay SQLite schema | Có thể | Có |
-| Thay download/security logic | Không bắt buộc | Có |
-| Sửa Tauri/React bug | Không | Có |
-| Đổi production dataset host compiled URL | Không | Có |
+Traffic-sign update không được đụng các bảng user progress/exam.
 
-## 10. Production transport/security
+Reset user data cũng không được xóa production question/sign datasets.
 
-Production dataset URL bắt buộc HTTPS và questions/assets phải cùng origin với manifest.
+## 9. Compatibility
 
-CSP hiện cho generic `https:` vì host chưa chốt. Trước public release, scope `connect-src` về đúng production origin.
+ExamConfig chỉ phụ thuộc question dataset phù hợp với quy định thi.
 
-Web Fetch hiện cần CORS. Native HTTP plugin có thể được cân nhắc sau khi host cố định; nếu dùng, capability chỉ cấp đúng host.
+Traffic-sign catalog là kiến thức/tra cứu độc lập và **không được dùng để tự suy đoán đáp án 600 câu**.
 
-SHA-256 + HTTPS là trust model bản đầu. Signed manifest có thể bổ sung sau nếu cần chống compromise storage/CDN mạnh hơn.
+## 10. Release decision matrix
 
-## 11. Production recommendation
+| Thay đổi | Questions release | Traffic-sign release | App installer mới |
+| --- | --- | --- | --- |
+| Sửa câu hỏi/đáp án verified | Có | Không | Không |
+| Sửa ảnh câu hỏi/sa hình | Có | Không | Không |
+| Thêm explanation verified | Có | Không | Không |
+| Sửa tên/ý nghĩa một biển | Không | Có | Không |
+| Sửa/thêm ảnh biển báo | Không | Có | Không |
+| Quy chuẩn biển báo thay đổi | Không bắt buộc | Có | Có thể nếu contract/UI đổi |
+| Thay UI | Không | Không | Có |
+| Thay SQLite schema | Có thể | Có thể | Có |
+| Thay download/security logic | Không bắt buộc | Không bắt buộc | Có |
+| Đổi compiled manifest host | Không | Không | Có |
+
+## 11. Production transport/security
+
+Hai manifest URL production bắt buộc HTTPS.
+
+Questions payload cùng origin với question manifest; traffic-sign payload cùng origin với traffic-sign manifest.
+
+Khuyến nghị đặt cả hai trên cùng R2 custom domain để CORS/CSP đơn giản:
+
+```text
+https://data.example.com/lythuyetlaixe/questions/...
+https://data.example.com/lythuyetlaixe/traffic-signs/...
+```
+
+CSP hiện cho generic `https:` vì host chưa chốt. Trước public release phải scope `connect-src` về exact origin.
+
+SHA-256 + HTTPS là trust model bản đầu. Signed manifests có thể bổ sung sau.
+
+## 12. Production recommendation
 
 Trước Desktop release candidate:
 
-1. hoàn thiện 600 câu + assets verified;
-2. publish HTTPS package;
-3. test first-run/update/offline/rollback local;
-4. frontend/Rust checks local;
-5. build/test NSIS Windows 10/11;
-6. quyết định code signing theo kênh phân phối.
-
-Sau bản offline ổn định mới đánh giá binary auto-update và cloud sync.
+1. hoàn thiện 600 câu + question assets verified;
+2. hoàn thiện traffic-sign catalog nếu đưa vào 1.0;
+3. publish hai package lên R2;
+4. test first-run/update/offline/rollback độc lập;
+5. frontend/Rust checks local;
+6. Runtime Diagnostics sạch lỗi production;
+7. build/test NSIS Windows 10/11.
