@@ -1,47 +1,145 @@
+import { useEffect, useMemo, useState } from "react";
 import type { AppSection } from "../../app/navigation";
+import { useTrafficSignsBootstrap } from "../../app/useTrafficSignsBootstrap";
 import {
   TRAFFIC_SIGN_KNOWLEDGE_SOURCE,
   trafficSignKnowledgeGroups,
 } from "../../data/trafficSignsKnowledge";
+import type { TrafficSignGroupCode } from "../../domain/entities/trafficSign";
 import type { DatasetBootstrapStatus } from "../../infrastructure/database/DatasetBootstrap";
+import {
+  SqliteTrafficSignsRepository,
+  type TrafficSignCatalogItem,
+} from "../../infrastructure/repositories/SqliteTrafficSignsRepository";
 
 interface TrafficSignsKnowledgePageProps {
   datasetStatus: DatasetBootstrapStatus;
   onNavigate: (section: AppSection) => void;
 }
 
+const repository = new SqliteTrafficSignsRepository();
+
+const GROUP_FILTERS: Array<{ code?: TrafficSignGroupCode; label: string }> = [
+  { label: "Tất cả" },
+  { code: "PROHIBITION", label: "Cấm" },
+  { code: "MANDATORY", label: "Hiệu lệnh" },
+  { code: "WARNING", label: "Nguy hiểm" },
+  { code: "INDICATION", label: "Chỉ dẫn" },
+  { code: "SUPPLEMENTARY", label: "Biển phụ" },
+];
+
 export function TrafficSignsKnowledgePage({
   datasetStatus,
   onNavigate,
 }: TrafficSignsKnowledgePageProps) {
-  const datasetReady = datasetStatus.state === "ready";
+  const questionsReady = datasetStatus.state === "ready";
+  const { status: signsStatus, retry: retrySigns } = useTrafficSignsBootstrap();
+  const [groupCode, setGroupCode] = useState<TrafficSignGroupCode>();
+  const [search, setSearch] = useState("");
+  const [items, setItems] = useState<TrafficSignCatalogItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string>();
+
+  useEffect(() => {
+    let active = true;
+    if (signsStatus.state !== "ready") {
+      setItems([]);
+      setTotal(0);
+      return () => {
+        active = false;
+      };
+    }
+
+    setLoading(true);
+    setError(undefined);
+    const timer = window.setTimeout(() => {
+      void repository
+        .list({ groupCode, search, limit: 500 })
+        .then((result) => {
+          if (!active) return;
+          setItems(result.items);
+          setTotal(result.total);
+        })
+        .catch((loadError) => {
+          if (!active) return;
+          setItems([]);
+          setTotal(0);
+          setError(loadError instanceof Error ? loadError.message : String(loadError));
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+    }, 150);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [groupCode, search, signsStatus]);
+
+  const signsStatusLabel = useMemo(() => {
+    switch (signsStatus.state) {
+      case "checking":
+        return "Đang kiểm tra catalog biển báo";
+      case "browser":
+        return "Browser preview: chưa dùng catalog native";
+      case "not-configured":
+        return "Chưa cấu hình dataset biển báo";
+      case "error":
+        return "Không thể tải dataset biển báo";
+      case "ready":
+        return `${signsStatus.signCount} biển · version ${signsStatus.version}${signsStatus.offline ? " · offline" : ""}`;
+    }
+  }, [signsStatus]);
 
   return (
     <div className="page traffic-signs-page">
       <section className="traffic-signs-hero">
         <div>
           <span className="eyebrow">Kiến thức nền</span>
-          <h1>Nhận biết 5 nhóm biển báo giao thông</h1>
+          <h1>Nhận biết và tra cứu biển báo giao thông</h1>
           <p>
-            Học theo mục đích, hình dạng và màu sắc đặc trưng để phân loại nhanh trước khi đi vào
-            từng biển cụ thể. Nội dung phần này bám theo {TRAFFIC_SIGN_KNOWLEDGE_SOURCE.regulation}.
+            Phần 5 nhóm kiến thức được tích hợp sẵn trong app. Catalog từng biển là một dataset
+            độc lập với bộ 600 câu và có version, checksum, ảnh và vòng đời cập nhật riêng.
           </p>
           <div className="traffic-signs-actions">
             <button className="primary-button" type="button" onClick={() => onNavigate("learning")}>
-              Mở catalog 600 câu
+              {questionsReady ? "Mở catalog 600 câu" : "Mở phần học 600 câu"}
             </button>
-            <span className={`traffic-signs-dataset ${datasetReady ? "ready" : "pending"}`}>
-              {datasetReady ? `Dataset ${datasetStatus.version} sẵn sàng` : "Kiến thức này dùng được ngay cả khi chưa có dataset"}
-            </span>
+            {(signsStatus.state === "not-configured" || signsStatus.state === "error") && (
+              <button className="secondary-button" type="button" onClick={retrySigns}>
+                Kiểm tra dataset biển báo
+              </button>
+            )}
           </div>
         </div>
         <div className="traffic-signs-source-card">
-          <span>Nguồn quy chuẩn</span>
+          <span>Nguồn kiến thức nhóm</span>
           <strong>{TRAFFIC_SIGN_KNOWLEDGE_SOURCE.regulation}</strong>
           <small>{TRAFFIC_SIGN_KNOWLEDGE_SOURCE.article}</small>
           <small>Hiệu lực từ 01/01/2025</small>
+          <div className={`traffic-signs-dataset ${signsStatus.state === "ready" ? "ready" : "pending"}`}>
+            {signsStatusLabel}
+          </div>
         </div>
       </section>
+
+      {signsStatus.state === "ready" && signsStatus.warning && (
+        <div className="data-warning" role="status">{signsStatus.warning}</div>
+      )}
+      {signsStatus.state === "error" && (
+        <div className="data-warning" role="status">
+          Catalog từng biển chưa khả dụng. Phần kiến thức 5 nhóm bên dưới vẫn hoạt động offline.
+          <small>{signsStatus.message}</small>
+        </div>
+      )}
+      {error && (
+        <div className="data-warning" role="status">
+          Không thể đọc catalog biển báo từ SQLite.
+          <small>{error}</small>
+        </div>
+      )}
 
       <section className="traffic-signs-summary" aria-label="Ghi nhớ nhanh">
         <article><strong>5</strong><span>nhóm biển cơ bản</span></article>
@@ -70,40 +168,92 @@ export function TrafficSignsKnowledgePage({
                   <h3>{group.title}</h3>
                 </div>
               </div>
-
               <p className="traffic-sign-purpose">{group.purpose}</p>
-
               <dl className="traffic-sign-facts">
-                <div>
-                  <dt>Nhận biết</dt>
-                  <dd>{group.recognition}</dd>
-                </div>
-                <div>
-                  <dt>Ghi nhớ</dt>
-                  <dd>{group.remember}</dd>
-                </div>
+                <div><dt>Nhận biết</dt><dd>{group.recognition}</dd></div>
+                <div><dt>Ghi nhớ</dt><dd>{group.remember}</dd></div>
               </dl>
-
               <div className="traffic-sign-examples">
                 <strong>Ví dụ nội dung thường gặp</strong>
-                <ul>
-                  {group.examples.map((example) => <li key={example}>{example}</li>)}
-                </ul>
+                <ul>{group.examples.map((example) => <li key={example}>{example}</li>)}</ul>
               </div>
             </article>
           ))}
         </div>
       </section>
 
+      <section className="section-block traffic-sign-catalog-section">
+        <div className="catalog-question-toolbar">
+          <div>
+            <span className="eyebrow">Catalog độc lập</span>
+            <h2>Tra cứu từng biển báo</h2>
+            <p>{signsStatus.state === "ready" ? `${total} biển phù hợp` : "Catalog sẽ xuất hiện sau khi traffic-signs dataset được publish và tải lần đầu."}</p>
+          </div>
+          <input
+            className="traffic-sign-search"
+            type="search"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Tìm mã biển, tên hoặc ý nghĩa..."
+            disabled={signsStatus.state !== "ready"}
+          />
+        </div>
+
+        <div className="catalog-filters traffic-sign-filters" aria-label="Lọc nhóm biển báo">
+          {GROUP_FILTERS.map((filter) => (
+            <button
+              type="button"
+              key={filter.code ?? "all"}
+              className={groupCode === filter.code ? "active" : ""}
+              onClick={() => setGroupCode(filter.code)}
+              disabled={signsStatus.state !== "ready"}
+            >
+              {filter.label}
+            </button>
+          ))}
+        </div>
+
+        {signsStatus.state !== "ready" ? (
+          <div className="catalog-empty-state">
+            <strong>Dataset biển báo chưa được cài.</strong>
+            <p>Cấu hình `VITE_TRAFFIC_SIGNS_MANIFEST_URL`, publish `traffic-signs.json` và asset package riêng để kích hoạt catalog này.</p>
+          </div>
+        ) : loading ? (
+          <div className="catalog-empty-state">Đang tải catalog biển báo...</div>
+        ) : items.length === 0 ? (
+          <div className="catalog-empty-state">Không tìm thấy biển phù hợp.</div>
+        ) : (
+          <div className="traffic-sign-catalog-grid">
+            {items.map((sign) => (
+              <article className="traffic-sign-detail-card" key={sign.code}>
+                <div className="traffic-sign-detail-image">
+                  {sign.imageUrl ? <img src={sign.imageUrl} alt={`Biển ${sign.code} - ${sign.name}`} /> : <span>{sign.code}</span>}
+                </div>
+                <div className="traffic-sign-detail-body">
+                  <div className="traffic-sign-detail-title">
+                    <span>{sign.code}</span>
+                    <strong>{sign.name}</strong>
+                  </div>
+                  <p>{sign.meaning}</p>
+                  {sign.scope && <small><b>Phạm vi:</b> {sign.scope}</small>}
+                  {sign.exceptions.length > 0 && <small><b>Ngoại lệ:</b> {sign.exceptions.join("; ")}</small>}
+                  {sign.notes && <small><b>Lưu ý:</b> {sign.notes}</small>}
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+
       <section className="traffic-signs-note">
         <div>
           <span className="eyebrow">Lưu ý</span>
-          <h2>Không suy luận chỉ bằng màu hoặc hình dạng</h2>
+          <h2>Hai dataset không suy diễn lẫn nhau</h2>
         </div>
         <p>{TRAFFIC_SIGN_KNOWLEDGE_SOURCE.note}</p>
         <p>
-          Khi bộ 600 câu production được cài, hãy kết hợp phần kiến thức này với nhóm câu
-          <strong> Báo hiệu đường bộ (301–485)</strong> để luyện nhận dạng trong ngữ cảnh sát hạch.
+          Catalog biển báo dùng để học và tra cứu. Đáp án trong bộ 600 câu vẫn phải đến từ
+          dataset 600 câu đã xác minh, không được tự suy ra từ catalog biển báo.
         </p>
       </section>
     </div>
