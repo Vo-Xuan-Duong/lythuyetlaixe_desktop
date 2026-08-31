@@ -1,7 +1,7 @@
 import type { TrafficSignGroupCode, TrafficSignRecord } from "../../domain/entities/trafficSign";
 import { resolveTrafficSignAssetUrl } from "../assets/TrafficSignAssetStore";
-import { getLocalTrafficSignsState } from "../database/TrafficSignsImporter";
 import { getDatabase } from "../database/database";
+import { getLocalTrafficSignsState } from "../database/TrafficSignsImporter";
 
 interface TrafficSignRow {
   code: string;
@@ -46,6 +46,10 @@ function parseStringArray(value: string): string[] {
   }
 }
 
+function escapeLike(value: string): string {
+  return value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
+}
+
 export class SqliteTrafficSignsRepository {
   async list(query: TrafficSignCatalogQuery = {}): Promise<TrafficSignCatalogResult> {
     const db = await getDatabase();
@@ -59,16 +63,24 @@ export class SqliteTrafficSignsRepository {
 
     const search = query.search?.trim().toLowerCase();
     if (search) {
-      params.push(`%${search}%`);
+      params.push(`%${escapeLike(search)}%`);
       const index = params.length;
-      where.push(`(LOWER(code) LIKE $${index} OR LOWER(name) LIKE $${index} OR LOWER(meaning) LIKE $${index} OR LOWER(keywords_json) LIKE $${index})`);
+      where.push(
+        `(LOWER(code) LIKE $${index} ESCAPE '\\' OR ` +
+        `LOWER(name) LIKE $${index} ESCAPE '\\' OR ` +
+        `LOWER(meaning) LIKE $${index} ESCAPE '\\' OR ` +
+        `LOWER(keywords_json) LIKE $${index} ESCAPE '\\')`,
+      );
     }
 
     const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
-    const countRows = await db.select<CountRow[]>(`SELECT COUNT(*) AS count FROM traffic_signs ${clause}`, params);
+    const countRows = await db.select<CountRow[]>(
+      `SELECT COUNT(*) AS count FROM traffic_signs ${clause}`,
+      params,
+    );
     const total = countRows[0]?.count ?? 0;
 
-    const limit = Math.min(Math.max(query.limit ?? 100, 1), 500);
+    const limit = Math.min(Math.max(query.limit ?? 48, 1), 200);
     const offset = Math.max(query.offset ?? 0, 0);
     const rowParams = [...params, limit, offset];
     const rows = await db.select<TrafficSignRow[]>(
@@ -76,7 +88,14 @@ export class SqliteTrafficSignsRepository {
               notes, image_path, keywords_json, source_version
        FROM traffic_signs
        ${clause}
-       ORDER BY group_code, code
+       ORDER BY CASE group_code
+         WHEN 'PROHIBITION' THEN 1
+         WHEN 'MANDATORY' THEN 2
+         WHEN 'WARNING' THEN 3
+         WHEN 'INDICATION' THEN 4
+         WHEN 'SUPPLEMENTARY' THEN 5
+         ELSE 99
+       END, code
        LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
       rowParams,
     );
