@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import json
 import re
 import unicodedata
-from pathlib import Path
 from typing import Iterable
 
 import fitz
@@ -50,7 +50,7 @@ def text_blocks(page: fitz.Page) -> list[tuple[fitz.Rect, str]]:
 
 def caption_rects(page: fitz.Page, section: str) -> list[fitz.Rect]:
     folded_section = fold_text(section).strip()
-    # Exact section boundary is important: B.3 must not match Hình B.30/B.31.
+    # Exact boundary prevents B.3 from matching B.30/B.31.
     pattern = re.compile(rf"\bHINH\s+{re.escape(folded_section)}(?![0-9A-Z])")
     return [rect for rect, text in text_blocks(page) if pattern.search(fold_text(text))]
 
@@ -103,7 +103,7 @@ def safe_name(section: str, index: int) -> str:
 def main() -> int:
     try:
         provenance = inspect_multipart_source(DEFAULT_MANIFEST, require_verified=True)
-        candidates_doc = __import__("json").loads(CANDIDATES_PATH.read_text(encoding="utf-8"))
+        candidates_doc = json.loads(CANDIDATES_PATH.read_text(encoding="utf-8"))
         candidates = candidates_doc.get("candidates")
         if not isinstance(candidates, list) or not candidates:
             raise ValueError("official-candidates.json contains no candidates")
@@ -115,10 +115,11 @@ def main() -> int:
         review_needed = 0
         try:
             OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-            # Remove stale candidate images so metadata and files are one extraction snapshot.
-            for stale in OUTPUT_DIR.glob("*"):
+            # Make every run an internally consistent extraction snapshot.
+            for stale in OUTPUT_DIR.iterdir():
                 if stale.is_file():
                     stale.unlink()
+
             for candidate in candidates:
                 if not isinstance(candidate, dict):
                     continue
@@ -166,10 +167,10 @@ def main() -> int:
             "method": "exact-caption-adjacent-verified-qcvn-render",
         }
         CANDIDATES_PATH.write_text(
-            __import__("json").dumps(candidates_doc, ensure_ascii=False, indent=2) + "\n",
+            json.dumps(candidates_doc, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
-    except (OSError, ValueError, __import__("json").JSONDecodeError) as error:
+    except (OSError, ValueError, json.JSONDecodeError, fitz.FileDataError) as error:
         raise SystemExit(f"Cannot extract official traffic-sign image candidates: {error}") from error
 
     print(f"[ok] image candidates: {extracted}")
