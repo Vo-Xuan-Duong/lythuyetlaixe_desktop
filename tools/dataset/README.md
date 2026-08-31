@@ -1,6 +1,6 @@
 # Dataset pipeline
 
-Pipeline này biến tài liệu PDF chính thức thành dataset đã kiểm chứng để import vào SQLite và phát hành qua remote storage.
+Pipeline này biến PDF chính thức thành dataset đã kiểm chứng để import SQLite và phát hành qua remote storage.
 
 ## 1. Cài dependency tooling
 
@@ -14,9 +14,7 @@ python -m pip install -r tools/dataset/requirements.txt
 pnpm dataset:download
 ```
 
-PDF được lưu dưới `data/raw/` và bị `.gitignore` bỏ qua. Script tạo checksum để có thể xác minh file nguồn trong từng lần build dataset.
-
-Nếu máy chủ CSGT tải chậm, có thể tải thủ công PDF chính thức và đặt đúng tên:
+PDF nằm dưới `data/raw/` và không commit. Nếu máy chủ CSGT tải chậm, có thể tải thủ công và đặt đúng tên:
 
 ```text
 data/raw/bo-600-cau-hoi.pdf
@@ -36,18 +34,9 @@ data/raw/extracted/pages.json
 data/raw/extracted/images/*
 ```
 
-`pages.json` giữ:
+`pages.json` giữ plain text, span/bbox/origin/baseline, font metadata, image placements và vector drawings. Vector layer bắt buộc được giữ vì đáp án đúng trong PDF chính thức được thể hiện bằng underline.
 
-- plain text;
-- text span + bounding box;
-- baseline/origin;
-- font metadata;
-- image placement;
-- vector drawings.
-
-Vector drawings được giữ vì **đáp án đúng trong tài liệu chính thức được gạch chân**. Không được bỏ layer này rồi đoán đáp án từ text.
-
-## 4. Parse candidate questions
+## 4. Parse 600 candidate questions
 
 ```powershell
 pnpm dataset:parse
@@ -59,7 +48,7 @@ Kết quả:
 data/raw/questions.unverified.json
 ```
 
-File này **không phải production dataset**. Các answer có `correct: null` cho tới khi bước nhận dạng underline/manual verification xác nhận đáp án.
+Parser không đoán đáp án; `correct` vẫn là `null`.
 
 ## 5. Resolve underline geometry
 
@@ -67,15 +56,7 @@ File này **không phải production dataset**. Các answer có `correct: null` 
 pnpm dataset:resolve
 ```
 
-Resolver:
-
-1. dựng lại text line từ `span + bbox + origin`;
-2. xác định vùng `Câu N` tới `Câu N+1`;
-3. tách vùng đáp án `1.`, `2.`, `3.`, `4.`;
-4. tìm vector line nằm ngay dưới baseline của từng answer line;
-5. tính score + margin;
-6. chỉ đánh dấu đáp án khi confidence vượt ngưỡng;
-7. đưa trường hợp không chắc chắn vào manual review.
+Resolver dựng lại answer lines, tính overlap với vector underline và chỉ resolve khi score/margin vượt ngưỡng.
 
 Kết quả:
 
@@ -84,11 +65,11 @@ data/raw/questions.resolved.json
 data/raw/answer-review.json
 ```
 
-Nếu score thấp hoặc hai đáp án có score gần nhau, resolver **không đoán** và giữ `correct: null`.
+Nếu confidence thấp hoặc ambiguous, câu giữ `correct: null` và `needsVerification=true`.
 
 ## 6. Manual answer review
 
-Copy template:
+Copy:
 
 ```text
 data/source/manual-answer-review.example.json
@@ -100,7 +81,7 @@ thành:
 data/source/manual-answer-review.json
 ```
 
-Sau đó chỉ nhập các câu đã kiểm tra trực tiếp trên tài liệu nguồn:
+Chỉ ghi đáp án sau khi đối chiếu trực tiếp PDF chính thức, ví dụ:
 
 ```json
 {
@@ -108,18 +89,16 @@ Sau đó chỉ nhập các câu đã kiểm tra trực tiếp trên tài liệu 
   "answerKey": "B",
   "sourcePage": 41,
   "reviewer": "manual-review",
-  "verifiedAt": "2026-08-30",
+  "verifiedAt": "2026-08-31",
   "note": "Verified directly against official PDF underline"
 }
 ```
 
-Áp dụng review:
+Áp dụng:
 
 ```powershell
 pnpm dataset:review
 ```
-
-Script lưu provenance trong `answerResolution` và không cho manual review âm thầm ghi đè kết quả geometry khác đáp án. Trường hợp thực sự cần sửa sau khi kiểm tra nguồn phải chạy trực tiếp script với `--allow-overwrite`.
 
 Kết quả:
 
@@ -127,57 +106,114 @@ Kết quả:
 data/raw/questions.reviewed.json
 ```
 
-## 7. Trích xuất ảnh câu hỏi an toàn
+Manual answer review lưu provenance và không âm thầm overwrite geometry result mâu thuẫn nếu không dùng explicit override option.
+
+## 7. Extract image candidates an toàn
 
 ```powershell
 pnpm dataset:images
 ```
 
-Stage `extract_question_images.py` được thiết kế riêng để **không làm lộ đáp án đúng**. Script không crop toàn bộ vùng câu hỏi/đáp án. Nó chỉ:
-
-1. dựng lại các dòng text theo tọa độ;
-2. tìm dòng `Câu N`;
-3. tìm đáp án đầu tiên (`1.` / `1)`);
-4. chỉ xét embedded image/vector graphics nằm giữa hai mốc đó;
-5. bỏ các vector line quá mỏng có thể là underline/separator;
-6. crop theo bounding box của graphics;
-7. nếu geometry mơ hồ thì đưa vào review thay vì tự gán.
+`extract_question_images.py` không crop toàn bộ question block. Nó chỉ xét graphics nằm giữa question header và answer đầu tiên để tránh đưa answer text/underline vào asset.
 
 Kết quả:
 
 ```text
 data/raw/questions.with-images.json
 data/raw/image-review.json
-data/processed/assets/images/q301.png
-...
+data/processed/assets/images/qNNN.png
 ```
 
-`image-review.json` phải được kiểm tra trực quan sau lần chạy thật. Heuristic này chỉ tạo candidate ảnh; nó không thay thế manual review đối với trường hợp mơ hồ.
+Geometry auto-detection chỉ tạo **candidate**. Một crop được auto-render vẫn chưa mặc định là production-approved.
 
-Các ảnh production được đặt dưới `data/processed/assets/` để publisher sau đó tạo `assets.zip` cho remote dataset.
+## 8. Manual image review
 
-## 8. Promotion gate
+Copy:
+
+```text
+data/source/manual-image-review.example.json
+```
+
+thành:
+
+```text
+data/source/manual-image-review.json
+```
+
+Các action hỗ trợ:
+
+- `accept-existing`: xác nhận asset auto-render hiện tại;
+- `accept-candidate`: chọn một geometry candidate từ report;
+- `crop`: chỉ định source page + crop sau khi xem PDF;
+- `none`: xác nhận câu thực sự không cần ảnh.
+
+Tất cả câu có image, câu extraction ambiguous và toàn bộ `ROAD_SIGNS`/`SITUATIONS` đều phải có quyết định explicit trước production.
+
+Áp dụng:
+
+```powershell
+pnpm dataset:image-review
+```
+
+Kết quả:
+
+```text
+data/raw/questions.images-reviewed.json
+```
+
+Dataset còn `imageNeedsVerification=true` sẽ bị promotion từ chối.
+
+## 9. Review workspace HTML
+
+Sau khi resolver/image extractor đã tạo report:
+
+```powershell
+pnpm dataset:review-report
+```
+
+Tool tạo:
+
+```text
+data/raw/review-workspace.html
+```
+
+Trang HTML offline hiển thị:
+
+- answer unresolved;
+- parsed answer contents;
+- underline scores;
+- source page;
+- image-sensitive questions;
+- image extraction reason;
+- crop candidates;
+- preview asset hiện có.
+
+Đây là **read-only review workspace**. Nó không tự ghi quyết định và không thay thế PDF chính thức. Kết quả đã verify vẫn phải ghi vào `manual-answer-review.json` / `manual-image-review.json` để giữ provenance.
+
+## 10. Promotion gate
 
 ```powershell
 pnpm dataset:promote
 ```
 
-Lệnh hiện promotion từ:
+Input mặc định:
 
 ```text
-data/raw/questions.with-images.json
+data/raw/questions.images-reviewed.json
 ```
 
-Promotion bị từ chối nếu:
+Promotion từ chối nếu:
 
-- không đủ 600 câu;
+- không đủ đúng 600 câu;
 - thiếu/trùng ID;
-- còn global/parser warning;
-- còn `needsVerification=true`;
-- `correct` chưa phải boolean;
-- một câu không có đúng chính xác 1 đáp án đúng.
+- còn parser warning;
+- answer verification chưa xong;
+- `correct` chưa phải boolean hoặc không có đúng 1 đáp án đúng;
+- image verification stage chưa chạy;
+- image verification unresolved > 0;
+- bất kỳ câu nào còn `imageNeedsVerification=true`.
 
-Kết quả hợp lệ được ghi thành:
+Kết quả:
 
 ```text
 data/processed/questions.json
@@ -185,68 +221,89 @@ data/processed/questions.json
 
 với `stage: production`.
 
-## 9. Production validation
+## 11. Production validation
 
 ```powershell
 pnpm dataset:validate
 ```
 
-Validator kiểm tra:
+Validator kiểm tra lại:
 
-- đúng 600 câu;
-- ID 1-600 đầy đủ;
-- đúng category theo khoảng;
-- đúng 60 câu điểm liệt;
-- không còn câu cần verification;
-- mỗi câu có đúng 1 đáp án đúng;
-- source version/license metadata;
-- image path an toàn;
-- extension ảnh được hỗ trợ;
-- mọi image path được tham chiếu phải tồn tại dưới `data/processed/assets`.
+- đúng 600 ID;
+- đúng category ranges;
+- đúng 60 critical IDs;
+- answer verification;
+- đúng 1 correct answer/câu;
+- source/license metadata;
+- image verification metadata;
+- image path an toàn/extension hỗ trợ;
+- referenced image phải tồn tại dưới `data/processed/assets`.
 
-Chỉ file vượt qua validator mới được phép phát hành/import vào SQLite.
-
-## 10. Publish remote package
+## 12. Publish remote package
 
 ```powershell
 pnpm dataset:publish
 ```
 
-Publisher tạo:
+Tạo:
 
 ```text
 dist/dataset/
 ├── dataset-manifest.json
 ├── questions.json
-└── assets.zip          # có khi dataset có ảnh
+└── assets.zip
 ```
 
-Manifest chứa SHA-256, kích thước và số asset. Ứng dụng tải/verify assets trước rồi mới activate dataset mới trong SQLite.
+Upload payload trước và `dataset-manifest.json` cuối cùng để tránh app nhìn thấy version chưa upload đầy đủ.
 
-Upload theo thứ tự an toàn:
+## 13. Pipeline status/checkpoints
 
-```text
-questions.json / assets.zip
-        ↓
-dataset-manifest.json cuối cùng
+Lệnh read-only:
+
+```powershell
+pnpm dataset:status
 ```
 
-Không sửa nội dung của một dataset version đã phát hành. Có thay đổi dữ liệu thì tăng version.
+Nó báo:
 
-## 11. Test tooling — chạy local khi bạn chủ động
+- file/stage nào đã tồn tại;
+- số câu parsed;
+- answer unresolved + ID preview;
+- parser warning count;
+- image unresolved + ID preview;
+- production question count;
+- bước tiếp theo nên chạy.
+
+Các shortcut local:
+
+```powershell
+# PDF đã có sẵn trong data/raw/
+pnpm dataset:prepare
+
+# Tự download trước khi prepare
+pnpm dataset:prepare:download
+
+# Sau khi đã điền manual-answer-review.json
+pnpm dataset:after-answer-review
+
+# Sau khi đã điền manual-image-review.json
+pnpm dataset:finalize
+```
+
+`dataset:finalize` chạy image review → promotion → validator → publisher; bất kỳ gate nào chưa đạt sẽ làm pipeline dừng.
+
+## 14. Test tooling — chỉ chạy local khi bạn chủ động
 
 ```powershell
 pnpm dataset:test
 ```
 
-Workflow GitHub `Validate` hiện manual-only; không còn tự chạy khi push/PR. Mặc định việc kiểm tra được thực hiện local.
+GitHub `Validate` workflow hiện manual-only và không tự chạy push/PR.
 
 ## Pipeline đầy đủ
 
 ```text
 Official PDF
-   ↓
-download_sources.py
    ↓
 extract_pdf.py
    ↓
@@ -255,42 +312,48 @@ parse_questions.py
 questions.unverified.json
    ↓
 resolve_answers.py
-   ├─ high confidence ──────────────┐
-   └─ uncertain → answer-review.json│
-                    ↓                │
-             manual source review    │
-                    ↓                │
-             apply_answer_review.py ←┘
+   ├─ resolved
+   └─ uncertain → answer-review.json
                     ↓
-             questions.reviewed.json
+            manual PDF verification
                     ↓
-       extract_question_images.py
-          ├─ accepted → assets/images/*
-          └─ ambiguous → image-review.json
+        apply_answer_review.py
                     ↓
-          questions.with-images.json
+         questions.reviewed.json
                     ↓
-              promote_dataset.py
+      extract_question_images.py
+          ├─ candidate assets
+          └─ image-review.json
                     ↓
-            data/processed/questions.json
+       review-workspace.html
                     ↓
-      validate.mjs + assets existence
+            manual visual review
                     ↓
-              publish_dataset.py
+         apply_image_review.py
                     ↓
- questions.json + assets.zip + manifest
+    questions.images-reviewed.json
                     ↓
-             remote storage
+          promote_dataset.py
                     ↓
-          Tauri bootstrap → SQLite
+     data/processed/questions.json
+                    ↓
+       validate.mjs + asset checks
+                    ↓
+          publish_dataset.py
+                    ↓
+questions.json + assets.zip + manifest
+                    ↓
+            HTTPS remote storage
+                    ↓
+        Tauri bootstrap → SQLite
 ```
 
-## Phần vẫn cần thực hiện trên dữ liệu thật
+## Phần vẫn cần dữ liệu/máy local thật
 
-- Chạy pipeline trên PDF chính thức đầy đủ.
-- Hiệu chỉnh threshold underline từ kết quả thực tế.
-- Manual review các đáp án chưa resolve chắc chắn.
-- Kiểm tra trực quan các ảnh trong `image-review.json` và ảnh đã render.
-- Tạo production dataset đủ 600 câu.
-- Publish lên endpoint HTTPS cố định.
-- Xác nhận first-run/update/offline trên app Tauri local.
+- chạy pipeline trên PDF chính thức;
+- calibrate underline threshold từ số liệu thật;
+- manual verify answer unresolved;
+- visual/manual verify image-sensitive questions;
+- tạo production dataset đủ 600 câu;
+- publish lên HTTPS endpoint cố định;
+- xác nhận first-run/update/offline trên app Tauri local.
