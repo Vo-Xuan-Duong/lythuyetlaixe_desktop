@@ -28,13 +28,26 @@ const EXPECTED_CRITICAL_COUNT = 60;
 const EXPECTED_CATEGORY_COUNT = 6;
 const MANIFEST_URL = import.meta.env.VITE_DATASET_MANIFEST_URL?.trim() ?? "";
 
+function looksLikeSha256(value?: string | null): boolean {
+  return /^[a-f0-9]{64}$/i.test((value ?? "").trim().replace(/^sha256:/i, ""));
+}
+
 async function databaseDiagnostics(): Promise<RuntimeDiagnosticItem[]> {
   try {
     const db = await getDatabase();
-    const [questionRows, criticalRows, categoryRows, invalidAnswerRows, metadataRows] = await Promise.all([
+    const [
+      questionRows,
+      criticalRows,
+      categoryRows,
+      imageRows,
+      invalidAnswerRows,
+      missingLicenseRows,
+      metadataRows,
+    ] = await Promise.all([
       db.select<CountRow[]>("SELECT COUNT(*) AS count FROM questions"),
       db.select<CountRow[]>("SELECT COUNT(*) AS count FROM questions WHERE is_critical = 1"),
       db.select<CountRow[]>("SELECT COUNT(*) AS count FROM categories"),
+      db.select<CountRow[]>("SELECT COUNT(*) AS count FROM questions WHERE image_path IS NOT NULL AND TRIM(image_path) <> ''"),
       db.select<CountRow[]>(
         `SELECT COUNT(*) AS count
          FROM (
@@ -45,19 +58,33 @@ async function databaseDiagnostics(): Promise<RuntimeDiagnosticItem[]> {
            HAVING SUM(CASE WHEN a.is_correct = 1 THEN 1 ELSE 0 END) <> 1
          ) invalid_questions`,
       ),
+      db.select<CountRow[]>(
+        `SELECT COUNT(*) AS count
+         FROM questions q
+         WHERE NOT EXISTS (
+           SELECT 1 FROM question_license_types qlt WHERE qlt.question_id = q.id
+         )`,
+      ),
       db.select<MetadataRow[]>(
         `SELECT key, value
          FROM dataset_metadata
-         WHERE key IN ('dataset', 'version', 'validFrom', 'sourceSha256', 'assetSha256', 'importedAt')`,
+         WHERE key IN (
+           'dataset', 'version', 'validFrom', 'sourceSha256',
+           'contentSha256', 'assetSha256', 'importedAt'
+         )`,
       ),
     ]);
 
     const questionCount = questionRows[0]?.count ?? 0;
     const criticalCount = criticalRows[0]?.count ?? 0;
     const categoryCount = categoryRows[0]?.count ?? 0;
+    const imageCount = imageRows[0]?.count ?? 0;
     const invalidAnswerCount = invalidAnswerRows[0]?.count ?? 0;
+    const missingLicenseCount = missingLicenseRows[0]?.count ?? 0;
     const metadata = new Map(metadataRows.map((row) => [row.key, row.value]));
     const version = metadata.get("version") ?? "";
+    const sourceSha256 = metadata.get("sourceSha256") ?? "";
+    const contentSha256 = metadata.get("contentSha256") ?? "";
     const assetSha256 = metadata.get("assetSha256") ?? "";
 
     const items: RuntimeDiagnosticItem[] = [
@@ -96,31 +123,65 @@ async function databaseDiagnostics(): Promise<RuntimeDiagnosticItem[]> {
             : `${invalidAnswerCount} câu không có đúng chính xác 1 đáp án đúng.`,
       },
       {
+        id: "license-mapping",
+        label: "Ánh xạ hạng GPLX",
+        level: missingLicenseCount === 0 && questionCount > 0 ? "pass" : "fail",
+        summary:
+          missingLicenseCount === 0 && questionCount > 0
+            ? "Mọi câu local đều có ít nhất một hạng GPLX."
+            : `${missingLicenseCount} câu chưa có hạng GPLX.`,
+      },
+      {
         id: "metadata",
         label: "Dataset metadata",
         level: version ? "pass" : "fail",
         summary: version ? `Version ${version}.` : "Thiếu version local.",
         detail: metadata.get("importedAt") ? `Imported: ${metadata.get("importedAt")}` : undefined,
       },
+      {
+        id: "content-checksum",
+        label: "questions.json checksum",
+        level: looksLikeSha256(contentSha256) ? "pass" : "warn",
+        summary: looksLikeSha256(contentSha256)
+          ? "Có contentSha256 hợp lệ cho package đã cài."
+          : "Thiếu contentSha256 hợp lệ; remote immutable comparison chưa thể xác minh đầy đủ.",
+      },
+      {
+        id: "source-checksum",
+        label: "PDF provenance checksum",
+        level: looksLikeSha256(sourceSha256) ? "pass" : "warn",
+        summary: looksLikeSha256(sourceSha256)
+          ? "Có sourceSha256 của tài liệu PDF nguồn."
+          : "Chưa có provenance SHA-256 của PDF nguồn trong metadata local.",
+      },
     ];
 
-    if (version && assetSha256) {
-      const assetRoot = `dataset-assets/${version}`;
-      const installed = await exists(assetRoot, { baseDir: BaseDirectory.AppData });
-      items.push({
-        id: "assets",
-        label: "Asset cache",
-        level: installed ? "pass" : "fail",
-        summary: installed
-          ? `Đã có asset directory cho dataset ${version}.`
-          : `Metadata có asset checksum nhưng thiếu ${assetRoot}.`,
-      });
+    if (imageCount > 0) {
+      if (!looksLikeSha256(assetSha256)) {
+        items.push({
+          id: "assets",
+          label: "Asset cache",
+          level: "fail",
+          summary: `${imageCount} câu tham chiếu ảnh nhưng thiếu assetSha256 hợp lệ.`,
+        });
+      } else if (version) {
+        const assetRoot = `dataset-assets/${version}`;
+        const installed = await exists(assetRoot, { baseDir: BaseDirectory.AppData });
+        items.push({
+          id: "assets",
+          label: "Asset cache",
+          level: installed ? "pass" : "fail",
+          summary: installed
+            ? `${imageCount} câu có ảnh; asset directory của dataset ${version} tồn tại.`
+            : `Metadata có asset checksum nhưng thiếu ${assetRoot}.`,
+        });
+      }
     } else {
       items.push({
         id: "assets",
         label: "Asset cache",
         level: "info",
-        summary: "Dataset local không khai báo asset package.",
+        summary: "Không có câu local nào tham chiếu ảnh.",
       });
     }
 
