@@ -34,6 +34,7 @@ class PromoteDatasetTests(unittest.TestCase):
             "dataset": "VN_GPLX_600",
             "version": "2025.06",
             "validFrom": "2025-06-01",
+            "sourceSha256": "a" * 64,
             "parserWarnings": [],
             "imageVerification": {
                 "method": "manual-provenance-gate",
@@ -47,9 +48,18 @@ class PromoteDatasetTests(unittest.TestCase):
         result = promote(self.valid_dataset())
 
         self.assertEqual(result["stage"], "production")
+        self.assertEqual(result["sourceSha256"], "a" * 64)
         self.assertEqual(result["promotion"]["questionCount"], 600)
         self.assertEqual(result["promotion"]["unresolvedAnswers"], 0)
         self.assertEqual(result["promotion"]["unresolvedImages"], 0)
+
+    def test_rejects_missing_source_provenance(self) -> None:
+        dataset = self.valid_dataset()
+        dataset.pop("sourceSha256")
+
+        errors = promotion_errors(dataset)
+
+        self.assertTrue(any("sourceSha256" in error for error in errors))
 
     def test_rejects_unresolved_question(self) -> None:
         dataset = self.valid_dataset()
