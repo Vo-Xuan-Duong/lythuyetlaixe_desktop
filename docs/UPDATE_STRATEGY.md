@@ -74,16 +74,16 @@ Traffic-sign official technical source is the ordered five-part Government Gazet
 Integrity:
 
 ```text
-partSha256[]  = SHA-256 of each exact Gazette PDF
-sourceSha256  = canonical SHA-256 of ordered (index, issue, partSha256) rows
+partSha256[]   = SHA-256 of each exact Gazette PDF
+sourceSha256   = canonical SHA-256 of ordered (index, issue, partSha256) rows
 combinedSha256 = SHA-256 of merged local parsing PDF only
-contentSha256 = traffic-signs.json SHA-256
-assetSha256   = traffic-sign-assets.zip SHA-256
+contentSha256  = traffic-signs.json SHA-256
+assetSha256    = traffic-sign-assets.zip SHA-256
 ```
 
 `combinedSha256` is never the production source identity. It exists so local extraction can prove its merged PDF snapshot has not changed.
 
-Every traffic-sign production record also carries `sourceSection`, `sourcePages`, `verifiedBy`, `verifiedAt`. Records with images carry verified image provenance with QCVN source hash, section, page and crop.
+The root traffic-sign manifest carries `sourcePartCount = 5`; runtime rejects any other count. Every production record also carries `sourceSection`, `sourcePages`, `verifiedBy`, `verifiedAt`. Records with images carry verified image provenance with QCVN source hash, section, page and crop.
 
 ## Immutable release rule
 
@@ -176,6 +176,32 @@ SHA-256 + HTTPS/domain control is the initial trust model. Signed manifests rema
 
 See [`R2_DEPLOYMENT.md`](./R2_DEPLOYMENT.md) for publication order/layout.
 
+## Static project / release preflight
+
+After production artifacts and `.env.production` exist:
+
+```powershell
+pnpm project:status
+```
+
+reports static blockers without failing the command.
+
+Before calling a build a release candidate:
+
+```powershell
+pnpm release:candidate:check
+```
+
+must return without blockers. It checks:
+
+- `pnpm-lock.yaml` and `src-tauri/Cargo.lock`;
+- local published questions package/hash/count;
+- local published traffic-sign package/hash/count/sourcePartCount;
+- production manifest URLs;
+- CSP no longer using generic `https:`.
+
+This preflight does not replace compiler/runtime/device verification.
+
 ## Desktop release recommendation
 
 Before release candidate:
@@ -185,5 +211,6 @@ Before release candidate:
 3. two-manifest first-run/offline/update/self-heal verified locally;
 4. SQLite migration v2 and write-queue behavior verified;
 5. frontend/Vitest/data/Rust checks run locally;
-6. Runtime Diagnostics has no unexplained production failures;
-7. NSIS install/upgrade verified on Windows 10/11.
+6. `pnpm release:candidate:check` has zero blockers;
+7. Runtime Diagnostics has no unexplained production failures;
+8. NSIS install/upgrade verified on Windows 10/11.
