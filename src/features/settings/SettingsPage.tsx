@@ -14,6 +14,7 @@ import {
   getAppRuntimeInfo,
   type AppRuntimeInfo,
 } from "../../infrastructure/runtime/AppRuntime";
+import { ReviewReminderSettings } from "./ReviewReminderSettings";
 
 interface SettingsPageProps {
   datasetStatus: DatasetBootstrapStatus;
@@ -231,6 +232,8 @@ export function SettingsPage({ datasetStatus, onCheckDataset }: SettingsPageProp
           </select>
         </div>
       </section>
+
+      <ReviewReminderSettings />
 
       <section className="settings-section">
         <div className="settings-section-heading">
