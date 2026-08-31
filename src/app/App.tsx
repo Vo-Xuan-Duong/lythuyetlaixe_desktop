@@ -15,12 +15,16 @@ import { getReviewReminderPreference } from "../infrastructure/preferences/AppPr
 import type { AppSection } from "./navigation";
 import { useDatasetBootstrap } from "./useDatasetBootstrap";
 import { useNativeBackHandler } from "./useNativeBackHandler";
+import { useTrafficSignsBootstrap } from "./useTrafficSignsBootstrap";
 
 const MAX_NAVIGATION_HISTORY = 20;
 
 export function App() {
   const [sectionHistory, setSectionHistory] = useState<AppSection[]>(["dashboard"]);
   const { status: datasetStatus, retry: retryDataset } = useDatasetBootstrap();
+  // Traffic signs use an independent background bootstrap. Failure here must
+  // never block the required 600-question flow.
+  const { status: trafficSignsStatus, retry: retryTrafficSigns } = useTrafficSignsBootstrap();
   const section = sectionHistory[sectionHistory.length - 1] ?? "dashboard";
 
   useEffect(() => {
@@ -57,10 +61,17 @@ export function App() {
   });
 
   const content = useMemo(() => {
-    // Built-in knowledge and settings remain reachable even when first-run
-    // dataset download is unavailable. Data-dependent features keep the setup gate.
+    // Built-in knowledge and settings remain reachable even when the required
+    // 600-question first-run download is unavailable.
     if (section === "signs") {
-      return <TrafficSignsKnowledgePage datasetStatus={datasetStatus} onNavigate={navigate} />;
+      return (
+        <TrafficSignsKnowledgePage
+          datasetStatus={datasetStatus}
+          trafficSignsStatus={trafficSignsStatus}
+          onNavigate={navigate}
+          onRetryTrafficSigns={retryTrafficSigns}
+        />
+      );
     }
     if (section === "settings") {
       return <SettingsPage datasetStatus={datasetStatus} onCheckDataset={retryDataset} />;
@@ -95,7 +106,14 @@ export function App() {
       case "statistics":
         return <StatisticsPage datasetStatus={datasetStatus} />;
     }
-  }, [datasetStatus, navigate, retryDataset, section]);
+  }, [
+    datasetStatus,
+    navigate,
+    retryDataset,
+    retryTrafficSigns,
+    section,
+    trafficSignsStatus,
+  ]);
 
   return (
     <AppShell activeSection={section} onNavigate={navigate}>
