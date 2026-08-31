@@ -38,7 +38,9 @@
     "dataset:prepare:download": "pnpm dataset:metadata && pnpm dataset:download && pnpm dataset:extract && pnpm dataset:parse && pnpm dataset:resolve && pnpm dataset:status",
     "dataset:after-answer-review": "pnpm dataset:review && pnpm dataset:images && pnpm dataset:review-report && pnpm dataset:status",
     "dataset:finalize": "pnpm dataset:image-review && pnpm dataset:promote && pnpm dataset:validate && pnpm dataset:publish && pnpm dataset:status",
-    "dataset:test": "python -m unittest discover -s tools/dataset/tests -p \"test_*.py\" -v"
+    "dataset:test": "python -m unittest discover -s tools/dataset/tests -p \"test_*.py\" -v",
+    "signs:validate": "node tools/traffic-signs/validate.mjs",
+    "signs:publish": "pnpm signs:validate && python tools/traffic-signs/publish.py"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
