@@ -10,6 +10,13 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MANIFEST = ROOT / "data" / "traffic-signs" / "source" / "source-manifest.json"
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
+EXPECTED_GAZETTE_ISSUES = (
+    "1359+1360",
+    "1361+1362",
+    "1363+1364",
+    "1365+1366",
+    "1367+1368",
+)
 
 
 @dataclass(frozen=True)
@@ -43,17 +50,30 @@ def safe_local_filename(value: object, label: str) -> str:
     return filename
 
 
-def canonical_bundle_sha256(parts: list[dict[str, Any]]) -> str:
-    rows: list[str] = []
-    if not parts:
-        raise ValueError("technicalSource.parts must contain at least one official part")
-    for index, part in enumerate(parts, start=1):
+def assert_expected_parts(parts: object) -> list[dict[str, Any]]:
+    if not isinstance(parts, list) or len(parts) != len(EXPECTED_GAZETTE_ISSUES):
+        raise ValueError(
+            f"technicalSource.parts must contain exactly {len(EXPECTED_GAZETTE_ISSUES)} official Gazette parts"
+        )
+    typed: list[dict[str, Any]] = []
+    for index, (part, expected_issue) in enumerate(zip(parts, EXPECTED_GAZETTE_ISSUES), start=1):
         if not isinstance(part, dict):
             raise ValueError(f"technicalSource.parts[{index}] must be an object")
         issue = str(part.get("issue") or "").strip()
+        if issue != expected_issue:
+            raise ValueError(
+                f"technicalSource.parts[{index}].issue must be {expected_issue}, found {issue or '<missing>'}"
+            )
+        typed.append(part)
+    return typed
+
+
+def canonical_bundle_sha256(parts: list[dict[str, Any]]) -> str:
+    rows: list[str] = []
+    checked = assert_expected_parts(parts)
+    for index, part in enumerate(checked, start=1):
+        issue = str(part.get("issue") or "").strip()
         checksum = normalize_sha(part.get("sourceSha256"))
-        if not issue:
-            raise ValueError(f"technicalSource.parts[{index}].issue is required")
         if not SHA_RE.fullmatch(checksum):
             raise ValueError(f"technicalSource.parts[{index}].sourceSha256 is invalid")
         rows.append(f"{index}|{issue}|{checksum}\n")
@@ -89,15 +109,11 @@ def inspect_multipart_source(
             raise ValueError("technicalSource is missing verifiedAt")
 
     source_dir = path.parent
-    parts = technical.get("parts")
-    if not isinstance(parts, list) or not parts:
-        raise ValueError("technicalSource.parts is required")
+    parts = assert_expected_parts(technical.get("parts"))
 
     part_files: list[Path] = []
     part_hashes: list[str] = []
     for index, part in enumerate(parts, start=1):
-        if not isinstance(part, dict):
-            raise ValueError(f"technicalSource.parts[{index}] must be an object")
         filename = safe_local_filename(part.get("localFile"), f"technicalSource.parts[{index}].localFile")
         source = source_dir / filename
         if not source.is_file():
