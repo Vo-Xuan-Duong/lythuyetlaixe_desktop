@@ -2,7 +2,7 @@
 
 ## Mục tiêu
 
-Ứng dụng không bundle bộ 600 câu production vào installer/APK/AAB.
+Ứng dụng không bundle bộ 600 câu production hoặc ảnh câu hỏi vào installer/APK/AAB.
 
 Luồng runtime:
 
@@ -14,7 +14,7 @@ Mở lần đầu
 GET dataset-manifest.json
     ↓
 Chưa có local dataset hoặc version khác?
-    ├─ Không → dùng SQLite local
+    ├─ Không → dùng SQLite + asset cache local
     └─ Có
        ↓
        GET questions.json
@@ -23,12 +23,26 @@ Chưa có local dataset hoặc version khác?
        ↓
        validate production dataset
        ↓
+       dataset có image?
+       ├─ Không → bỏ qua asset package
+       └─ Có
+          ↓
+          GET assets.zip
+          ↓
+          kiểm tra size + SHA-256 + fileCount
+          ↓
+          kiểm tra path/type/giới hạn giải nén
+          ↓
+          giải nén vào $APPDATA/dataset-assets/<version>/
+       ↓
        transaction import vào SQLite
        ↓
-       dùng offline từ SQLite
+       dùng offline từ SQLite + AppData
 ```
 
-Các lần mở tiếp theo chỉ tải `dataset-manifest.json` để kiểm tra version. Nếu version không thay đổi, app không tải lại 600 câu.
+Asset package được cài **trước** khi SQLite chuyển sang dataset version mới. Vì vậy nếu download hoặc giải nén ảnh thất bại, app vẫn giữ dataset và asset version cũ đang hoạt động.
+
+Các lần mở tiếp theo chỉ tải `dataset-manifest.json` để kiểm tra version/checksum. Nếu version và checksum không thay đổi, app không tải lại 600 câu hoặc asset package.
 
 Nếu mất mạng nhưng SQLite local đã có đủ 600 câu, ứng dụng tiếp tục hoạt động với dataset local. Nếu đây là lần chạy đầu tiên và chưa có dataset local, lỗi tải dữ liệu sẽ chặn các feature phụ thuộc dataset cho đến khi tải thành công.
 
@@ -40,9 +54,25 @@ Build production cấu hình:
 VITE_DATASET_MANIFEST_URL=https://data.example.com/lythuyetlaixe/dataset-manifest.json
 ```
 
-URL này được compile vào frontend tại build time. Vì vậy nơi chứa dữ liệu có thể cập nhật nội dung/version mà không cần release lại app, miễn URL manifest không thay đổi.
+URL này được compile vào frontend tại build time. Nơi chứa dữ liệu có thể cập nhật version mà không cần release lại app, miễn URL manifest không thay đổi.
 
 ## Gói phân phối
+
+Ảnh production đặt trong:
+
+```text
+data/processed/assets/
+└── images/
+    ├── q301.webp
+    ├── q302.webp
+    └── ...
+```
+
+Giá trị `question.image` trong `questions.json` phải là relative path, ví dụ:
+
+```json
+"image": "images/q301.webp"
+```
 
 Sau khi `data/processed/questions.json` vượt qua production validator:
 
@@ -55,10 +85,11 @@ Publisher tạo:
 ```text
 dist/dataset/
 ├── dataset-manifest.json
-└── questions.json
+├── questions.json
+└── assets.zip              # chỉ có khi dataset tham chiếu ảnh
 ```
 
-`dataset-manifest.json` có dạng:
+Ví dụ `dataset-manifest.json`:
 
 ```json
 {
@@ -68,11 +99,20 @@ dist/dataset/
   "stage": "production",
   "datasetUrl": "questions.json",
   "sha256": "...",
-  "sizeBytes": 1234567
+  "sizeBytes": 1234567,
+  "assets": {
+    "url": "assets.zip",
+    "format": "zip",
+    "sha256": "...",
+    "sizeBytes": 987654,
+    "fileCount": 185
+  }
 }
 ```
 
-`datasetUrl` là relative URL và được resolve theo URL thật của manifest. Do đó hai file chỉ cần được upload vào cùng một thư mục trên CDN/static host.
+Các URL trong manifest là relative URL và được resolve theo URL thật của manifest. Các file chỉ cần được upload vào cùng một thư mục trên CDN/static host.
+
+Publisher không zip toàn bộ thư mục assets một cách mù quáng. Nó chỉ đưa các file đang được `questions.json` tham chiếu vào archive và fail nếu thiếu file hoặc path không an toàn.
 
 ## Update dataset
 
@@ -80,34 +120,64 @@ Khi có dataset mới:
 
 1. Tạo dataset version mới.
 2. Chạy validator.
-3. Chạy `pnpm dataset:publish`.
-4. Upload `questions.json` trước.
-5. Upload/replace `dataset-manifest.json` sau cùng.
+3. Chuẩn bị toàn bộ ảnh tương ứng trong `data/processed/assets`.
+4. Chạy `pnpm dataset:publish`.
+5. Upload `questions.json` và `assets.zip` trước.
+6. Upload/replace `dataset-manifest.json` sau cùng.
 
-Thứ tự này tránh trường hợp manifest mới trỏ đến dataset chưa upload xong.
+Manifest phải được publish cuối cùng để không bao giờ quảng bá một version mà payload chưa upload xong.
 
-App thấy version mới sẽ tải file mới, kiểm tra SHA-256, validate và import transaction. `user_progress`, bookmark và exam history không bị xóa bởi quá trình cập nhật dataset.
+Version đã phát hành là immutable. Nếu remote thay checksum của `questions.json` hoặc `assets.zip` nhưng giữ nguyên version, app không tự overwrite bản local đó. Mọi thay đổi production phải tăng version.
 
 ## Storage trên máy
 
-Runtime source of truth là SQLite `lythuyetlaixe.db`, không phải file JSON đã tải.
+Runtime source of truth:
 
-Dataset JSON chỉ tồn tại trong memory trong quá trình download/verify/import. Điều này tránh phải duy trì hai bản dữ liệu local và giảm nguy cơ SQLite không đồng bộ với JSON cache.
+```text
+SQLite: lythuyetlaixe.db
+AppData:
+└── dataset-assets/
+    └── <version>/
+        └── images/
+            └── ...
+```
 
-Metadata dataset local nằm trong bảng `dataset_metadata`, gồm tối thiểu:
+Dataset JSON chỉ tồn tại trong memory trong quá trình download/verify/import. Không giữ thêm một bản `questions.json` local để tránh hai nguồn dữ liệu bị lệch nhau.
+
+Ảnh được lưu thành file vì WebView cần đọc binary assets hiệu quả. `questions.image_path` trong SQLite vẫn lưu relative path; `SqliteQuestionRepository` resolve thành Tauri asset URL khi trả Question cho UI.
+
+Metadata local trong `dataset_metadata` gồm tối thiểu:
 
 - `dataset`
 - `version`
 - `validFrom`
 - `sourceSha256`
+- `assetSha256`
 - `importedAt`
+
+## Asset security
+
+Asset ZIP được kiểm tra trước khi ghi vào AppData:
+
+- SHA-256 và optional `sizeBytes` của archive;
+- optional `fileCount`;
+- không chấp nhận absolute path hoặc `..` path traversal;
+- chỉ chấp nhận `.png`, `.jpg`, `.jpeg`, `.webp`;
+- tối đa 2.000 files;
+- tối đa 128 MiB dữ liệu sau giải nén.
+
+Tauri filesystem plugin chỉ dùng AppData của ứng dụng. Asset protocol chỉ scope tới:
+
+```text
+$APPDATA/dataset-assets/**/*
+```
 
 ## Network / security
 
 Dataset phải được phục vụ qua HTTPS.
 
-Bootstrap hiện sử dụng Web Fetch API. Host production cần cho phép request từ WebView/CORS phù hợp.
+Bootstrap hiện sử dụng Web Fetch API. Host production cần CORS phù hợp cho WebView.
 
-Khi domain production được chốt, nên chuyển transport sang `@tauri-apps/plugin-http` và scope capability đúng domain đó. Không nên cấp HTTP permission rộng cho mọi HTTPS origin chỉ để tránh CORS.
+Khi domain production được chốt, nên chuyển transport sang `@tauri-apps/plugin-http` và scope capability đúng domain đó. Không cấp HTTP permission rộng cho mọi HTTPS origin chỉ để tránh CORS.
 
-Checksum SHA-256 bảo vệ khỏi file hỏng hoặc nội dung không khớp manifest. Nó không thay thế chữ ký số nếu sau này cần mô hình chống giả mạo mạnh hơn; khi đó có thể thêm public-key signature vào manifest.
+SHA-256 bảo vệ khỏi payload hỏng hoặc không khớp manifest nhưng không chứng minh ai là người phát hành manifest. Nếu cần chống giả mạo mạnh hơn, bước nâng cấp tiếp theo là ký manifest bằng public-key signature và nhúng public key xác minh trong app.
