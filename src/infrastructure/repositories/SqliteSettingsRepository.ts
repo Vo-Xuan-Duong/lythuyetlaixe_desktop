@@ -14,7 +14,11 @@ export interface LocalApplicationInfo {
   datasetVersion: string | null;
   validFrom: string | null;
   importedAt: string | null;
+  /** SHA-256 provenance of the official source PDF. */
   sourceSha256: string | null;
+  /** SHA-256 of the exact published questions.json payload. */
+  contentSha256: string | null;
+  /** SHA-256 of the published assets.zip payload. */
   assetSha256: string | null;
   questionCount: number;
   progressCount: number;
@@ -42,6 +46,7 @@ export class SqliteSettingsRepository {
       validFrom: nullable("validFrom"),
       importedAt: nullable("importedAt"),
       sourceSha256: nullable("sourceSha256"),
+      contentSha256: nullable("contentSha256"),
       assetSha256: nullable("assetSha256"),
       questionCount: questionRows[0]?.count ?? 0,
       progressCount: progressRows[0]?.count ?? 0,
