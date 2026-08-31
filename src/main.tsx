@@ -7,6 +7,7 @@ import "./styles/learning-catalog.css";
 import "./styles/question-collection.css";
 import "./styles/exam.css";
 import "./styles/dataset-setup.css";
+import "./styles/review-statistics.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
