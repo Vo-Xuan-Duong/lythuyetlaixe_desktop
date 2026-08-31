@@ -1,6 +1,7 @@
 export type AppSection =
   | "dashboard"
   | "learning"
+  | "signs"
   | "critical"
   | "exam"
   | "mistakes"
@@ -18,6 +19,7 @@ export interface NavigationItem {
 export const navigationItems: NavigationItem[] = [
   { id: "dashboard", label: "Trang chủ", shortLabel: "Home", icon: "⌂" },
   { id: "learning", label: "Học 600 câu", shortLabel: "Học", icon: "▤" },
+  { id: "signs", label: "Kiến thức biển báo", shortLabel: "Biển báo", icon: "◇" },
   { id: "critical", label: "60 câu điểm liệt", shortLabel: "Điểm liệt", icon: "!" },
   { id: "exam", label: "Thi thử", shortLabel: "Thi", icon: "✓" },
   { id: "mistakes", label: "Ôn tập", shortLabel: "Ôn tập", icon: "↻" },
