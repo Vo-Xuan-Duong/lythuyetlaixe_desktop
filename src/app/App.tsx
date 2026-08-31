@@ -5,7 +5,9 @@ import { ExamPage } from "../features/exam/ExamPage";
 import { LearningPage } from "../features/learning/LearningPage";
 import { QuestionCollectionPage } from "../features/learning/QuestionCollectionPage";
 import { FeaturePlaceholder } from "../features/placeholder/FeaturePlaceholder";
+import { ReviewPage } from "../features/review/ReviewPage";
 import { DatasetSetupPage } from "../features/setup/DatasetSetupPage";
+import { StatisticsPage } from "../features/statistics/StatisticsPage";
 import type { AppSection } from "./navigation";
 import { useDatasetBootstrap } from "./useDatasetBootstrap";
 
@@ -34,17 +36,7 @@ export function App() {
       case "exam":
         return <ExamPage datasetStatus={datasetStatus} />;
       case "mistakes":
-        return (
-          <QuestionCollectionPage
-            datasetStatus={datasetStatus}
-            eyebrow="Review queue"
-            title="Câu làm sai"
-            description="Các câu từng trả lời sai được lấy trực tiếp từ SQLite và ưu tiên để ôn lại."
-            filter="wrong"
-            emptyTitle="Chưa có câu làm sai."
-            emptyDescription="Các câu trả lời sai sẽ tự xuất hiện tại đây sau khi bạn luyện tập."
-          />
-        );
+        return <ReviewPage datasetStatus={datasetStatus} />;
       case "bookmarks":
         return (
           <QuestionCollectionPage
@@ -58,13 +50,7 @@ export function App() {
           />
         );
       case "statistics":
-        return (
-          <FeaturePlaceholder
-            eyebrow="Learning analytics"
-            title="Thống kê"
-            description="Theo dõi độ chính xác theo chủ đề, câu yếu, lịch sử thi và tỷ lệ đạt."
-          />
-        );
+        return <StatisticsPage datasetStatus={datasetStatus} />;
       case "settings":
         return (
           <FeaturePlaceholder
