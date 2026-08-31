@@ -79,6 +79,9 @@ export function DashboardPage({ datasetStatus, onNavigate }: DashboardPageProps)
             <button className="primary-button" onClick={() => onNavigate("learning")} type="button">
               Bắt đầu học
             </button>
+            <button className="secondary-button" onClick={() => onNavigate("signs")} type="button">
+              Kiến thức biển báo
+            </button>
             <button className="secondary-button" onClick={() => onNavigate("exam")} type="button">
               Thi thử
             </button>
