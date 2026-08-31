@@ -1,19 +1,22 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 import unicodedata
 from datetime import datetime, timezone
-from pathlib import Path
 
 import fitz
 
-ROOT = Path(__file__).resolve().parents[2]
-SOURCE_MANIFEST = ROOT / "data" / "traffic-signs" / "source" / "source-manifest.json"
+from source_provenance import DEFAULT_MANIFEST, inspect_multipart_source
+
+ROOT = DEFAULT_MANIFEST.parents[2]
 OUTPUT = ROOT / "data" / "traffic-signs" / "raw" / "official-candidates.json"
-HEADING_RE = re.compile(r"^([B-F])\.(\d+[A-Z]?)\s+BIEN\s+SO\s+(.+)$")
-CODE_RE = re.compile(r"\b(?:DP|P|W|R|I|S|IE|SE)\.\s*\d+(?:[A-Z])?\b")
+HEADING_RE = re.compile(r"^([B-F])\.\s*(\d+[A-Z]?)\s*BIEN\s+SO\s+(.+)$")
+EXPLICIT_CODE_RE = re.compile(r"\b(?:DP|P|W|R|I|S|IE|SE)(?:\.[A-Z])?[,.]\s*\d+[A-Z]?\b")
+STANDARD_CODE_RE = re.compile(r"\b(?:DP|P|W|R|I|S|IE|SE)\.\s*\d+[A-Z]?\b")
+VARIANT_RE = re.compile(
+    r"\b((?:DP|P|W|R|I|S|IE|SE)(?:\.[A-Z])?[,.]\s*\d+)\s*\(\s*([A-Z](?:\s*,\s*[A-Z])+)\s*\)"
+)
 APPENDIX_GROUPS = {
     "B": "PROHIBITION",
     "C": "WARNING",
@@ -21,14 +24,6 @@ APPENDIX_GROUPS = {
     "E": "INDICATION",
     "F": "SUPPLEMENTARY",
 }
-
-
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def fold_text(value: str) -> str:
@@ -40,41 +35,37 @@ def normalize_line(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 
-def normalized_code(value: str) -> str:
-    return re.sub(r"\.\s+", ".", value).upper()
+def normalize_code(value: str) -> str:
+    value = re.sub(r"\s+", "", value.upper())
+    value = value.replace(".,", ",")
+    return value
 
 
-def load_verified_source() -> tuple[dict, dict, Path, str]:
-    if not SOURCE_MANIFEST.is_file():
-        raise ValueError(f"missing source manifest: {SOURCE_MANIFEST}")
-    manifest = json.loads(SOURCE_MANIFEST.read_text(encoding="utf-8"))
-    technical = manifest.get("technicalSource")
-    if not isinstance(technical, dict):
-        raise ValueError("source-manifest.json is missing technicalSource")
-    if technical.get("verificationStatus") != "verified-official-full-source":
-        raise ValueError("technicalSource must be verified before official candidate extraction")
-
-    filename = technical.get("localFile")
-    if not isinstance(filename, str) or not filename.strip() or Path(filename).name != filename:
-        raise ValueError("technicalSource.localFile must be a plain filename")
-    source = SOURCE_MANIFEST.parent / filename
-    if not source.is_file():
-        raise ValueError(f"missing verified technical source: {source}")
-
-    declared = str(technical.get("sourceSha256") or "").strip().lower().removeprefix("sha256:")
-    actual = sha256_file(source)
-    if not re.fullmatch(r"[0-9a-f]{64}", declared) or declared != actual:
-        raise ValueError("technicalSource SHA-256 does not match the local verified file")
-    return manifest, technical, source, actual
+def extract_codes(value: str) -> list[str]:
+    folded = fold_text(value)
+    codes: set[str] = set()
+    for match in STANDARD_CODE_RE.finditer(folded):
+        codes.add(normalize_code(match.group(0)))
+    for match in EXPLICIT_CODE_RE.finditer(folded):
+        codes.add(normalize_code(match.group(0)))
+    for match in VARIANT_RE.finditer(folded):
+        base = normalize_code(match.group(1))
+        for suffix in match.group(2).split(","):
+            normalized_suffix = suffix.strip().upper()
+            if normalized_suffix:
+                codes.add(f"{base}{normalized_suffix}")
+        # A parenthesized variant list denotes the variants, not an additional
+        # unsuffixed sign code. Remove an accidentally captured base.
+        codes.discard(base)
+    return sorted(codes)
 
 
-def extract_candidates(source: Path) -> list[dict]:
+def extract_candidates(source) -> list[dict]:  # type: ignore[no-untyped-def]
     document = fitz.open(source)
     try:
         lines: list[tuple[int, str]] = []
         for page_index, page in enumerate(document):
-            text = page.get_text("text")
-            for raw_line in text.splitlines():
+            for raw_line in page.get_text("text").splitlines():
                 line = normalize_line(raw_line)
                 if line:
                     lines.append((page_index + 1, line))
@@ -89,8 +80,7 @@ def extract_candidates(source: Path) -> list[dict]:
         nonlocal current, body
         if current is None:
             return
-        content = normalize_line(" ".join(body))
-        current["body"] = content
+        current["body"] = normalize_line(" ".join(body))
         current["endPage"] = end_page or current["startPage"]
         current["reviewStatus"] = "pending"
         candidates.append(current)
@@ -103,19 +93,17 @@ def extract_candidates(source: Path) -> list[dict]:
         if match:
             flush(page_number)
             appendix = match.group(1)
-            codes = sorted({normalized_code(code) for code in CODE_RE.findall(folded)})
             current = {
                 "appendix": appendix,
                 "section": f"{appendix}.{match.group(2)}",
                 "groupCode": APPENDIX_GROUPS[appendix],
                 "heading": line,
-                "codes": codes,
+                "codes": extract_codes(line),
                 "startPage": page_number,
                 "endPage": page_number,
             }
             body = []
             continue
-
         if current is not None:
             body.append(line)
             current["endPage"] = page_number
@@ -126,23 +114,32 @@ def extract_candidates(source: Path) -> list[dict]:
 
 def main() -> int:
     try:
-        manifest, technical, source, checksum = load_verified_source()
-        candidates = extract_candidates(source)
+        provenance = inspect_multipart_source(DEFAULT_MANIFEST, require_verified=True)
+        candidates = extract_candidates(provenance.combined_file)
         if not candidates:
-            raise ValueError(
-                "no Appendix B-F traffic-sign sections were detected; inspect PDF text extraction before continuing"
-            )
+            raise ValueError("no Appendix B-F traffic-sign sections were detected; inspect PDF text extraction")
+
+        appendix_counts = {
+            appendix: sum(1 for candidate in candidates if candidate.get("appendix") == appendix)
+            for appendix in APPENDIX_GROUPS
+        }
+        missing_appendices = [appendix for appendix, count in appendix_counts.items() if count == 0]
+        if missing_appendices:
+            raise ValueError("candidate extraction missed required appendices: " + ", ".join(missing_appendices))
 
         output = {
             "dataset": "VN_TRAFFIC_SIGNS_CANDIDATES",
             "stage": "review-candidate",
-            "sourceDocument": manifest.get("sourceDocument"),
-            "sourceSha256": checksum,
-            "sourceFile": technical.get("localFile"),
-            "sourceOfficialUrl": technical.get("officialUrl"),
+            "sourceDocument": provenance.manifest.get("sourceDocument"),
+            "sourceSha256": provenance.source_sha256,
+            "sourceFile": provenance.technical.get("localFile"),
+            "sourceRegistryUrl": provenance.technical.get("registryUrl"),
+            "sourcePartCount": len(provenance.part_files),
             "generatedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "candidateCount": len(candidates),
-            "notes": "Candidate sections extracted from a verified full QCVN source. These are not production records until manually reviewed/normalized.",
+            "appendixCounts": appendix_counts,
+            "detectedCodeCount": len({code for candidate in candidates for code in candidate.get("codes", [])}),
+            "notes": "Candidate sections extracted only from the verified five-part Government Gazette QCVN source. Manual review is still required before production.",
             "candidates": candidates,
         }
         OUTPUT.parent.mkdir(parents=True, exist_ok=True)
@@ -150,10 +147,12 @@ def main() -> int:
     except (OSError, ValueError, json.JSONDecodeError) as error:
         raise SystemExit(f"Cannot extract official traffic-sign candidates: {error}") from error
 
-    print(f"[ok] source: {source}")
-    print(f"[ok] candidates: {len(candidates)}")
+    print(f"[ok] source: {provenance.combined_file}")
+    print(f"[ok] official parts: {len(provenance.part_files)}")
+    print(f"[ok] candidate sections: {len(candidates)}")
+    print(f"[ok] detected unique codes: {output['detectedCodeCount']}")
+    print(f"[ok] appendix counts: {appendix_counts}")
     print(f"[ok] output: {OUTPUT}")
-    print("Next: review/normalize candidate sections before creating production traffic-signs.json.")
     return 0
 
 
