@@ -7,10 +7,12 @@ import re
 import zipfile
 from pathlib import Path
 
+from source_provenance import DEFAULT_MANIFEST, inspect_multipart_source
+
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_INPUT = ROOT / "data" / "traffic-signs" / "processed" / "traffic-signs.json"
 DEFAULT_ASSETS_ROOT = ROOT / "data" / "traffic-signs" / "processed" / "assets"
-DEFAULT_SOURCE_MANIFEST = ROOT / "data" / "traffic-signs" / "source" / "source-manifest.json"
+DEFAULT_SOURCE_MANIFEST = DEFAULT_MANIFEST
 DEFAULT_OUTPUT = ROOT / "dist" / "traffic-signs"
 VERSION_RE = re.compile(r"^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$")
 SHA256_RE = re.compile(r"^(?:sha256:)?[0-9a-fA-F]{64}$")
@@ -47,34 +49,13 @@ def normalize_sha256(value: object) -> str:
     return value.strip().lower().removeprefix("sha256:")
 
 
-def verify_source_provenance(dataset: dict, source_manifest_path: Path) -> str:
-    manifest = load_json(source_manifest_path, "traffic-sign source manifest")
-    technical = manifest.get("technicalSource")
-    if not isinstance(technical, dict):
-        raise ValueError("traffic-sign source manifest is missing technicalSource")
-    if technical.get("verificationStatus") != "verified-official-full-source":
-        raise ValueError("traffic-sign technicalSource must be verified-official-full-source before publish")
-    if not isinstance(technical.get("verifiedBy"), str) or not technical["verifiedBy"].strip():
-        raise ValueError("traffic-sign technicalSource is missing verifiedBy")
-    if not isinstance(technical.get("verifiedAt"), str) or not technical["verifiedAt"].strip():
-        raise ValueError("traffic-sign technicalSource is missing verifiedAt")
-
-    filename = technical.get("localFile")
-    if not isinstance(filename, str) or not filename.strip() or Path(filename).name != filename:
-        raise ValueError("traffic-sign technicalSource.localFile must be a plain filename")
-    source_file = source_manifest_path.parent / filename
-    if not source_file.is_file():
-        raise FileNotFoundError(f"verified traffic-sign technical source file is missing: {source_file}")
-
-    technical_sha = normalize_sha256(technical.get("sourceSha256"))
-    if sha256(source_file) != technical_sha:
-        raise ValueError("traffic-sign technicalSource SHA-256 does not match the verified local file")
-
-    if dataset.get("sourceDocument") != manifest.get("sourceDocument"):
+def verify_source_provenance(dataset: dict, source_manifest_path: Path) -> tuple[str, int]:
+    provenance = inspect_multipart_source(source_manifest_path, require_verified=True)
+    if dataset.get("sourceDocument") != provenance.manifest.get("sourceDocument"):
         raise ValueError("traffic-signs.json sourceDocument does not match verified source manifest")
-    if normalize_sha256(dataset.get("sourceSha256")) != technical_sha:
-        raise ValueError("traffic-signs.json sourceSha256 does not match verified technicalSource")
-    return technical_sha
+    if normalize_sha256(dataset.get("sourceSha256")) != provenance.source_sha256:
+        raise ValueError("traffic-signs.json sourceSha256 does not match verified canonical multipart bundle")
+    return provenance.source_sha256, len(provenance.part_files)
 
 
 def safe_relative_asset_path(value: str) -> str:
@@ -138,7 +119,7 @@ def publish(
         raise ValueError("traffic-signs.json must contain at least one verified sign")
 
     version = normalize_version(dataset.get("version"))
-    source_sha256 = verify_source_provenance(dataset, source_manifest)
+    source_sha256, source_part_count = verify_source_provenance(dataset, source_manifest)
     if not isinstance(dataset.get("validFrom"), str) or not dataset["validFrom"].strip():
         raise ValueError("traffic-signs.json validFrom is required")
     if not isinstance(dataset.get("sourceDocument"), str) or not dataset["sourceDocument"].strip():
@@ -181,6 +162,7 @@ def publish(
         "sha256": sha256(output_dataset),
         "sourceDocument": dataset["sourceDocument"],
         "sourceSha256": source_sha256,
+        "sourcePartCount": source_part_count,
         "signCount": len(signs),
         "sizeBytes": output_dataset.stat().st_size,
     }
