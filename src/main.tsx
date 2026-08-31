@@ -6,6 +6,7 @@ import "./styles/learning-session.css";
 import "./styles/learning-catalog.css";
 import "./styles/question-collection.css";
 import "./styles/exam.css";
+import "./styles/exam-review.css";
 import "./styles/dataset-setup.css";
 import "./styles/review-statistics.css";
 import "./styles/settings.css";
