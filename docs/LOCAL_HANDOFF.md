@@ -4,6 +4,24 @@ Checklist tiếp tục project trên máy local sau giai đoạn code/static-rev
 
 > Không coi mục nào là đã pass cho tới khi maintainer chạy/xác minh trên máy hoặc thiết bị thật.
 
+## 0. Xem blocker hiện tại
+
+Sau `pnpm install` có thể chạy:
+
+```powershell
+pnpm project:status
+```
+
+Lệnh chỉ đọc file/artifact/config và báo blocker; không build/test.
+
+Khi chuẩn bị release candidate:
+
+```powershell
+pnpm release:candidate:check
+```
+
+Strict preflight phải có `Blockers: 0` trước release candidate. Nó không thay compiler/runtime/device verification.
+
 ## 1. Dependency / lockfile
 
 ```powershell
@@ -12,7 +30,7 @@ pnpm --version
 pnpm install
 ```
 
-Sau khi dependency graph ổn định, commit `pnpm-lock.yaml`. Không tạo lockfile thủ công.
+Sau khi dependency graph ổn định, commit `pnpm-lock.yaml`. Để Cargo tạo/xác minh `src-tauri/Cargo.lock` rồi commit; không tạo lockfile thủ công.
 
 ## 2. Compile / checks local
 
@@ -101,20 +119,13 @@ dist/dataset/
 
 ### 5.1 Tải đúng nguồn chính thức
 
-Cài PyMuPDF nếu chưa có:
-
 ```powershell
 python -m pip install -r tools/dataset/requirements.txt
-```
-
-Tải legal basis + đúng 5 phần Công báo Chính phủ của QCVN 41:2024/BGTVT:
-
-```powershell
 pnpm signs:source:download
 pnpm signs:status
 ```
 
-Technical source bắt buộc đúng thứ tự:
+Technical source bắt buộc đúng 5 phần Công báo theo thứ tự:
 
 ```text
 1359+1360
@@ -124,9 +135,7 @@ Technical source bắt buộc đúng thứ tự:
 1367+1368
 ```
 
-`sourceSha256` là canonical hash của 5 part-hash; `combinedSha256` chỉ là hash PDF ghép dùng cho parser.
-
-Sau download:
+`sourceSha256` = canonical hash của đúng 5 part-hash; `combinedSha256` chỉ là hash PDF ghép dùng extraction/review.
 
 ```powershell
 pnpm signs:source:verify -- --reviewer "<reviewer>"
@@ -149,7 +158,7 @@ data/traffic-signs/raw/
 └── image-candidates/
 ```
 
-Nếu candidate extraction có section không detect được code, dừng và sửa/đối chiếu thay vì đoán.
+Nếu section không detect được code, dừng và đối chiếu/sửa candidate metadata thay vì đoán.
 
 ### 5.3 Manual review
 
@@ -166,14 +175,14 @@ data/traffic-signs/raw/review-workspace.html
 
 Trong workspace:
 
-- đối chiếu từng record với QCVN chính thức;
-- điền/kiểm tra name, meaning, recognition, scope, exceptions, notes, keywords;
-- giữ đúng `sourceSection` và `sourcePages`;
-- điền `verifiedBy` + `verifiedAt`;
-- chọn candidate image **hoặc** nhập manual crop `page + x0,y0,x1,y1`;
+- đối chiếu từng record với QCVN;
+- hoàn thiện name/meaning/recognition/scope/exceptions/notes/keywords;
+- giữ đúng `sourceSection`, `sourcePages`;
+- điền `verifiedBy`, `verifiedAt`;
+- chọn candidate image hoặc manual crop `page + x0,y0,x1,y1`;
 - export `manual-review.json`.
 
-Chép file export trở lại:
+Chép file export về:
 
 ```text
 data/traffic-signs/raw/manual-review.json
@@ -181,20 +190,18 @@ data/traffic-signs/raw/manual-review.json
 
 ### 5.4 Processed image verification — hai bước
 
-Sau khi chọn/crop ảnh:
-
 ```powershell
 pnpm signs:review:images
 pnpm signs:review:workspace
 ```
 
-Tool sẽ copy/render ảnh vào:
+Tool copy/render vào:
 
 ```text
 data/traffic-signs/processed/assets/signs/
 ```
 
-và ghi provenance:
+và ghi image provenance:
 
 ```text
 method
@@ -203,12 +210,10 @@ sourceSection
 page
 crop
 processedAsset
-candidateFile (nếu dùng candidate)
+candidateFile (nếu candidate)
 ```
 
-**Không** tự bật `imageVerified`.
-
-Mở lại workspace, xem processed asset; nếu đúng mới bật `imageVerified=true`, hoàn tất record verification và export `manual-review.json` lần cuối.
+Tool **không** tự bật `imageVerified`. Mở lại workspace, kiểm tra processed image, sau đó mới bật `imageVerified=true`, hoàn tất record verification và export review lần cuối.
 
 ### 5.5 Promotion / publish
 
@@ -219,11 +224,11 @@ pnpm signs:finalize
 
 Production gate yêu cầu:
 
-- official source bundle đã verify;
-- manual-review code set khớp chính xác official candidate code set;
+- official 5-part bundle đã verify;
+- manual-review code set khớp chính xác official candidates;
 - mọi record verified;
-- per-sign sourceSection/sourcePages/reviewer/time;
-- mọi ảnh có imageVerified và official image provenance;
+- per-sign source section/pages/reviewer/time;
+- mọi ảnh có imageVerified và official source/page/crop provenance;
 - processed assets tồn tại;
 - validator pass trước publisher.
 
@@ -236,6 +241,8 @@ dist/traffic-signs/
     ├── traffic-signs.json
     └── traffic-sign-assets.zip
 ```
+
+Root manifest phải có `sourcePartCount = 5`.
 
 Schema chi tiết: [`TRAFFIC_SIGNS.md`](./TRAFFIC_SIGNS.md).
 
@@ -260,9 +267,16 @@ lythuyetlaixe/
     └── releases/<version>/...
 ```
 
-Cho từng dataset: upload versioned payload trước, verify HTTPS GET, rồi upload root manifest cuối. R2/custom domain cần CORS read-only cho WebView. Sau khi chốt host, scope CSP `connect-src` về đúng origin.
+Cho từng dataset: upload immutable release payload trước, verify HTTPS GET, rồi upload root manifest cuối. Cấu hình CORS read-only. Sau khi chốt host, scope CSP `connect-src` về exact origin.
 
-Chi tiết: [`R2_DEPLOYMENT.md`](./R2_DEPLOYMENT.md).
+Sau khi local packages + `.env.production` có đủ:
+
+```powershell
+pnpm project:status
+pnpm release:candidate:check
+```
+
+Chi tiết R2: [`R2_DEPLOYMENT.md`](./R2_DEPLOYMENT.md).
 
 ## 7. Tauri runtime verification
 
@@ -285,13 +299,14 @@ pnpm tauri:dev
 
 1. Startup bootstrap độc lập với questions.
 2. migration v2 tạo `traffic_sign_metadata` + `traffic_signs`.
-3. Runtime reject payload thiếu per-sign/image provenance.
-4. Search/filter/pagination hoạt động.
-5. Ảnh từ `$APPDATA/traffic-sign-assets/<version>/`.
-6. Offline restart vẫn tra cứu được.
-7. Update signs không reset questions; update questions không xóa signs.
-8. Missing rows/assets với same valid package → self-heal.
-9. Same version + changed checksum bị reject.
+3. Root manifest `sourcePartCount` khác 5 bị reject.
+4. Runtime reject payload thiếu per-sign/image provenance.
+5. Search/filter/pagination hoạt động.
+6. Ảnh từ `$APPDATA/traffic-sign-assets/<version>/`.
+7. Offline restart vẫn tra cứu được.
+8. Update signs không reset questions; update questions không xóa signs.
+9. Missing rows/assets với same valid package → self-heal.
+10. Same version + changed checksum bị reject.
 
 ### Concurrency / user data
 
@@ -303,6 +318,7 @@ Chạy **Settings → Runtime Diagnostics** sau first-run và sau offline restar
 
 ```powershell
 pnpm release:check
+pnpm release:candidate:check
 pnpm release:windows:local
 ```
 
@@ -315,7 +331,7 @@ pnpm tauri:android:init
 pnpm tauri:android:dev
 ```
 
-Verify migration v2, hai AppData asset roots, Store, first-run/offline, native Back, notification và responsive/touch.
+Verify migration v2, hai AppData roots, Store, first-run/offline, native Back, notification và responsive/touch.
 
 ```powershell
 pnpm tauri:android:build:debug
@@ -331,7 +347,7 @@ Release APK/AAB cần signing/keystore.
 
 - production 600-question package;
 - manual unresolved answer/image work;
-- production traffic-sign records/images verified từ official QCVN bundle;
+- production traffic-sign records/images verified từ official 5-part QCVN bundle;
 - explanation đáng tin cậy nếu đưa vào production.
 
 ### DEPLOYMENT
@@ -362,6 +378,7 @@ Release APK/AAB cần signing/keystore.
 600 questions verified + published
 + traffic signs verified + published (nếu đưa vào 1.0)
 + versioned two-manifest R2 deployment
++ pnpm release:candidate:check: zero blockers
 + first-run/offline/update/self-heal verified
 + frontend/Rust/data checks pass local
 + Runtime Diagnostics không có lỗi production chưa giải thích
