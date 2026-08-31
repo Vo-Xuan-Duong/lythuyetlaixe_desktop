@@ -57,7 +57,15 @@ dist/traffic-signs/
     └── traffic-sign-assets.zip
 ```
 
-The publishers reject different bytes under an already-generated release version. Change production content by creating a **new dataset version**, never by mutating an old release directory.
+Traffic-sign manifest additionally contains:
+
+```text
+sourceSha256   = canonical hash of the ordered 5 official Gazette source parts
+sourcePartCount = 5
+signCount       = verified production sign count
+```
+
+Publishers reject different bytes under an already-generated release version. Change production content by creating a **new dataset version**, never by mutating an old release directory.
 
 ## Publish order
 
@@ -81,24 +89,22 @@ lythuyetlaixe/traffic-signs/releases/2025.01/traffic-sign-assets.zip
 lythuyetlaixe/traffic-signs/manifest.json
 ```
 
-Use the actual verified versions emitted by the local publishers; the values above are layout examples.
+Use actual verified versions emitted by local publishers.
 
 ## Cache policy
-
-Versioned payloads are immutable, so they can use a long cache lifetime. Root manifests are mutable pointers and should be revalidated or use a short/no-cache policy.
-
-Conceptually:
 
 ```text
 releases/<version>/*  → long-lived immutable cache
 root manifest         → revalidate / short cache
 ```
 
+Do not cache a mutable root manifest as immutable.
+
 ## Public access and CORS
 
 The current runtime uses Web Fetch from the Tauri WebView. The public HTTPS origin therefore needs read-only CORS suitable for `GET`/`HEAD`. Do not expose write methods to the app.
 
-The application needs only public read URLs. R2/API credentials are maintainer-only deployment credentials and must never be compiled into `.env.production`, JavaScript, Rust constants or the installer.
+R2/API credentials are maintainer-only deployment credentials and must never be compiled into `.env.production`, JavaScript, Rust constants or the installer.
 
 ## App production environment
 
@@ -111,7 +117,26 @@ The 600-question manifest is required for a clean first-run of Learning/Exam/Rev
 
 ## CSP after the domain is final
 
-Development currently allows generic HTTPS connectivity in production CSP because the final data host has not been selected. Before public release, restrict `connect-src` to the exact R2 custom-domain origin used by both manifests.
+Before public release, change `src-tauri/tauri.conf.json` `connect-src` from generic `https:` to the exact R2 custom-domain origin used by both manifests.
+
+Example concept:
+
+```text
+connect-src 'self' ipc: http://ipc.localhost https://data.example.vn
+```
+
+Do not keep unrestricted `https:` in a release candidate.
+
+## Static preflight before upload/release
+
+After local artifacts and `.env.production` are ready:
+
+```powershell
+pnpm project:status
+pnpm release:candidate:check
+```
+
+The strict check verifies local package checksums/counts/provenance, lockfiles, production URLs and CSP hardening. It does not make network requests to R2 and does not replace end-to-end testing.
 
 ## Verification after upload
 
@@ -125,6 +150,7 @@ startup
 
 Then verify:
 
+- traffic-sign root manifest with `sourcePartCount != 5` is rejected;
 - restart with network available does not re-download unchanged payloads;
 - offline restart uses both local snapshots;
 - updating questions does not replace traffic signs;
