@@ -42,6 +42,8 @@ TRAFFIC SIGNS
 
 Hai package có source/content/asset SHA-256 riêng và update độc lập.
 
+Traffic-sign manifest còn có `signCount` bắt buộc để phát hiện catalog local thiếu record.
+
 ## 4. Hoàn thiện bộ 600 câu
 
 ```powershell
@@ -158,16 +160,19 @@ pnpm tauri:dev
 5. Version mới → giữ progress/bookmark/exam history.
 6. Update lỗi → giữ version cũ.
 7. Same version + checksum khác → không overwrite.
+8. Xóa local asset directory nhưng giữ metadata → app tự tải lại package cùng version để phục hồi cache.
 
 ### Biển báo
 
 1. `VITE_TRAFFIC_SIGNS_MANIFEST_URL` độc lập với questions URL.
-2. First-run của catalog import `traffic_signs` mà không chạm `questions`.
-3. Search/filter từng biển hoạt động.
-4. Ảnh đọc từ `$APPDATA/traffic-sign-assets/<version>/`.
-5. Tắt mạng → catalog vẫn hoạt động.
-6. Update traffic-sign version không làm reload/reset 600 câu.
-7. Update question version không làm xóa traffic-sign catalog.
+2. App startup kiểm tra/tải catalog nền, không đợi người dùng mở trang Biển báo.
+3. First-run import `traffic_signs` không chạm `questions`.
+4. Search/filter từng biển hoạt động.
+5. Ảnh đọc từ `$APPDATA/traffic-sign-assets/<version>/`.
+6. Tắt mạng → catalog vẫn hoạt động.
+7. Update traffic-sign version không làm reload/reset 600 câu.
+8. Update question version không làm xóa traffic-sign catalog.
+9. Thiếu row hoặc asset cache nhưng cùng immutable checksum/version → app tự tải lại package để phục hồi.
 
 ### Chung
 
@@ -236,7 +241,7 @@ Release APK/AAB cần signing/keystore.
 
 ```text
 600 questions verified + published
-+ traffic-sign catalog verified + published (nếu включ vào 1.0)
++ traffic-sign catalog verified + published (nếu đưa vào 1.0)
 + two-manifest first-run/offline/update verified
 + frontend/Rust checks pass local
 + Runtime Diagnostics sạch lỗi production
