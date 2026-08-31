@@ -20,6 +20,7 @@ interface TrafficSignsKnowledgePageProps {
 }
 
 const repository = new SqliteTrafficSignsRepository();
+const PAGE_SIZE = 48;
 
 const GROUP_FILTERS: Array<{ code?: TrafficSignGroupCode; label: string }> = [
   { label: "Tất cả" },
@@ -39,10 +40,18 @@ export function TrafficSignsKnowledgePage({
   const questionsReady = datasetStatus.state === "ready";
   const [groupCode, setGroupCode] = useState<TrafficSignGroupCode>();
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(0);
   const [items, setItems] = useState<TrafficSignCatalogItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
+  const catalogIdentity = signsStatus.state === "ready"
+    ? `ready:${signsStatus.version}`
+    : signsStatus.state;
+
+  useEffect(() => {
+    setPage(0);
+  }, [groupCode, search, catalogIdentity]);
 
   useEffect(() => {
     let active = true;
@@ -59,7 +68,7 @@ export function TrafficSignsKnowledgePage({
     setError(undefined);
     const timer = window.setTimeout(() => {
       void repository
-        .list({ groupCode, search, limit: 500 })
+        .list({ groupCode, search, limit: PAGE_SIZE, offset: page * PAGE_SIZE })
         .then((result) => {
           if (!active) return;
           setItems(result.items);
@@ -80,7 +89,7 @@ export function TrafficSignsKnowledgePage({
       active = false;
       window.clearTimeout(timer);
     };
-  }, [groupCode, search, signsStatus]);
+  }, [groupCode, page, search, signsStatus]);
 
   const signsStatusLabel = useMemo(() => {
     switch (signsStatus.state) {
@@ -96,6 +105,10 @@ export function TrafficSignsKnowledgePage({
         return `${signsStatus.signCount} biển · version ${signsStatus.version}${signsStatus.offline ? " · offline" : ""}`;
     }
   }, [signsStatus]);
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const rangeStart = total > 0 ? page * PAGE_SIZE + 1 : 0;
+  const rangeEnd = total > 0 ? Math.min((page + 1) * PAGE_SIZE, total) : 0;
 
   return (
     <div className="page traffic-signs-page">
@@ -227,25 +240,53 @@ export function TrafficSignsKnowledgePage({
         ) : items.length === 0 ? (
           <div className="catalog-empty-state">Không tìm thấy biển phù hợp.</div>
         ) : (
-          <div className="traffic-sign-catalog-grid">
-            {items.map((sign) => (
-              <article className="traffic-sign-detail-card" key={sign.code}>
-                <div className="traffic-sign-detail-image">
-                  {sign.imageUrl ? <img src={sign.imageUrl} alt={`Biển ${sign.code} - ${sign.name}`} /> : <span>{sign.code}</span>}
-                </div>
-                <div className="traffic-sign-detail-body">
-                  <div className="traffic-sign-detail-title">
-                    <span>{sign.code}</span>
-                    <strong>{sign.name}</strong>
+          <>
+            <div className="traffic-sign-catalog-grid">
+              {items.map((sign) => (
+                <article className="traffic-sign-detail-card" key={sign.code}>
+                  <div className="traffic-sign-detail-image">
+                    {sign.imageUrl ? <img src={sign.imageUrl} alt={`Biển ${sign.code} - ${sign.name}`} /> : <span>{sign.code}</span>}
                   </div>
-                  <p>{sign.meaning}</p>
-                  {sign.scope && <small><b>Phạm vi:</b> {sign.scope}</small>}
-                  {sign.exceptions.length > 0 && <small><b>Ngoại lệ:</b> {sign.exceptions.join("; ")}</small>}
-                  {sign.notes && <small><b>Lưu ý:</b> {sign.notes}</small>}
-                </div>
-              </article>
-            ))}
-          </div>
+                  <div className="traffic-sign-detail-body">
+                    <div className="traffic-sign-detail-title">
+                      <span>{sign.code}</span>
+                      <strong>{sign.name}</strong>
+                    </div>
+                    <p>{sign.meaning}</p>
+                    {sign.recognition && <small><b>Nhận biết:</b> {sign.recognition}</small>}
+                    {sign.scope && <small><b>Phạm vi:</b> {sign.scope}</small>}
+                    {sign.exceptions.length > 0 && <small><b>Ngoại lệ:</b> {sign.exceptions.join("; ")}</small>}
+                    {sign.notes && <small><b>Lưu ý:</b> {sign.notes}</small>}
+                    <small className="traffic-sign-source"><b>Nguồn:</b> {sign.sourceVersion}</small>
+                  </div>
+                </article>
+              ))}
+            </div>
+
+            {totalPages > 1 && (
+              <nav className="traffic-sign-pagination" aria-label="Phân trang catalog biển báo">
+                <button
+                  className="secondary-button"
+                  type="button"
+                  disabled={page === 0}
+                  onClick={() => setPage((current) => Math.max(0, current - 1))}
+                >
+                  Trang trước
+                </button>
+                <span>
+                  {rangeStart}–{rangeEnd}/{total} · Trang {page + 1}/{totalPages}
+                </span>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  disabled={page + 1 >= totalPages}
+                  onClick={() => setPage((current) => Math.min(totalPages - 1, current + 1))}
+                >
+                  Trang sau
+                </button>
+              </nav>
+            )}
+          </>
         )}
       </section>
 
