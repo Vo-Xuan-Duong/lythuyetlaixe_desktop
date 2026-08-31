@@ -86,7 +86,7 @@ def main() -> int:
                 seen.add(code)
                 start_page = candidate.get("startPage")
                 end_page = candidate.get("endPage")
-                source_pages = [page for page in (start_page, end_page) if isinstance(page, int)]
+                source_pages = sorted({page for page in (start_page, end_page) if isinstance(page, int) and page > 0})
                 records.append(
                     {
                         "code": code,
@@ -98,6 +98,7 @@ def main() -> int:
                         "exceptions": [],
                         "notes": "",
                         "image": None,
+                        "imageVerified": False,
                         "keywords": [],
                         "sourceVersion": source_manifest.get("sourceDocument"),
                         "sourceSection": candidate.get("section"),
@@ -119,7 +120,7 @@ def main() -> int:
             "sourceSha256": technical_sha if from_official else None,
             "candidateSource": "official-technical-source" if from_official else "reference-only",
             "candidateFile": str(candidate_path.relative_to(ROOT)).replace("\\", "/"),
-            "notes": "Fill final fields from the verified official technical source. candidateText is only context and is never promoted automatically.",
+            "notes": "Fill final fields from the verified official technical source. candidateText is context only and is never promoted automatically. If image is set, imageVerified must be true before apply.",
             "records": records,
             "sectionsWithoutCodes": sections_without_codes,
         }
