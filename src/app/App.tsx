@@ -8,6 +8,7 @@ import { QuestionCollectionPage } from "../features/learning/QuestionCollectionP
 import { ReviewPage } from "../features/review/ReviewPage";
 import { DatasetSetupPage } from "../features/setup/DatasetSetupPage";
 import { SettingsPage } from "../features/settings/SettingsPage";
+import { TrafficSignsKnowledgePage } from "../features/signs/TrafficSignsKnowledgePage";
 import { StatisticsPage } from "../features/statistics/StatisticsPage";
 import { restoreReviewReminder } from "../infrastructure/notifications/ReviewReminderService";
 import { getReviewReminderPreference } from "../infrastructure/preferences/AppPreferences";
@@ -51,11 +52,23 @@ export function App() {
   }, []);
 
   useNativeBackHandler(navigateBack, {
-    enabled: datasetStatus.state === "ready" && sectionHistory.length > 1,
+    enabled: sectionHistory.length > 1,
     priority: 10,
   });
 
   const content = useMemo(() => {
+    // Built-in knowledge and settings remain reachable even when first-run
+    // dataset download is unavailable. Data-dependent features keep the setup gate.
+    if (section === "signs") {
+      return <TrafficSignsKnowledgePage datasetStatus={datasetStatus} onNavigate={navigate} />;
+    }
+    if (section === "settings") {
+      return <SettingsPage datasetStatus={datasetStatus} onCheckDataset={retryDataset} />;
+    }
+    if (datasetStatus.state === "checking" || datasetStatus.state === "error") {
+      return <DatasetSetupPage status={datasetStatus} onRetry={retryDataset} />;
+    }
+
     switch (section) {
       case "dashboard":
         return <DashboardPage datasetStatus={datasetStatus} onNavigate={navigate} />;
@@ -81,14 +94,11 @@ export function App() {
         );
       case "statistics":
         return <StatisticsPage datasetStatus={datasetStatus} />;
+      case "signs":
       case "settings":
-        return <SettingsPage datasetStatus={datasetStatus} onCheckDataset={retryDataset} />;
+        return null;
     }
   }, [datasetStatus, navigate, retryDataset, section]);
-
-  if (datasetStatus.state === "checking" || datasetStatus.state === "error") {
-    return <DatasetSetupPage status={datasetStatus} onRetry={retryDataset} />;
-  }
 
   return (
     <AppShell activeSection={section} onNavigate={navigate}>
