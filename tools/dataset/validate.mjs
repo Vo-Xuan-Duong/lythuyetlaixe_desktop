@@ -6,6 +6,7 @@ import process from "node:process";
 
 const EXPECTED_QUESTION_COUNT = 600;
 const EXPECTED_CRITICAL_COUNT = 60;
+const ALLOWED_IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp"]);
 const CATEGORY_RULES = [
   { code: "GENERAL_RULES", from: 1, to: 180 },
   { code: "CULTURE", from: 181, to: 205 },
@@ -20,7 +21,7 @@ const imagesRootArg = process.argv.find((value) => value.startsWith("--images-ro
 const imagesRoot = imagesRootArg?.slice("--images-root=".length);
 
 if (!datasetPath) {
-  console.error("Usage: node tools/dataset/validate.mjs <questions.json> [--images-root=public/question-images]");
+  console.error("Usage: node tools/dataset/validate.mjs <questions.json> [--images-root=data/processed/assets]");
   process.exit(2);
 }
 
@@ -35,9 +36,30 @@ function expectedCategory(questionId) {
   return CATEGORY_RULES.find((rule) => questionId >= rule.from && questionId <= rule.to)?.code;
 }
 
+function normalizedImagePath(value) {
+  if (typeof value !== "string" || value.trim().length === 0) return null;
+  const normalized = value.replaceAll("\\", "/").replace(/^\.\//, "");
+  const segments = normalized.split("/").filter(Boolean);
+  if (
+    normalized.startsWith("/") ||
+    /^[a-zA-Z]:/.test(normalized) ||
+    segments.length === 0 ||
+    segments.some((segment) => segment === "." || segment === "..")
+  ) {
+    return null;
+  }
+  if (!ALLOWED_IMAGE_EXTENSIONS.has(path.posix.extname(normalized).toLowerCase())) {
+    return null;
+  }
+  return segments.join("/");
+}
+
 async function imageExists(imagePath) {
   if (!imagesRoot || !imagePath) return true;
-  const absolutePath = path.resolve(imagesRoot, imagePath.replace(/^[/\\]+/, ""));
+  const root = path.resolve(imagesRoot);
+  const absolutePath = path.resolve(root, imagePath);
+  const relative = path.relative(root, absolutePath);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) return false;
   try {
     await access(absolutePath);
     return true;
@@ -114,8 +136,12 @@ for (const question of questions) {
 
   if (question.critical === true) criticalCount += 1;
 
-  if (question.image && imagesRoot && !(await imageExists(question.image))) {
-    errors.push(`${prefix}: image not found: ${question.image}`);
+  if (question.image !== undefined && question.image !== null && question.image !== "") {
+    const safeImagePath = normalizedImagePath(question.image);
+    assert(Boolean(safeImagePath), `${prefix}: unsafe or unsupported image path ${String(question.image)}`);
+    if (safeImagePath && imagesRoot && !(await imageExists(safeImagePath))) {
+      errors.push(`${prefix}: image not found: ${safeImagePath}`);
+    }
   }
 }
 
