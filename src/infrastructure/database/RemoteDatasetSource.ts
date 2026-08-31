@@ -27,6 +27,8 @@ const MAX_MANIFEST_BYTES = 128 * 1024;
 const MAX_DATASET_BYTES = 16 * 1024 * 1024;
 export const MAX_ASSET_ARCHIVE_BYTES = 64 * 1024 * 1024;
 const LOCAL_DEVELOPMENT_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
+const VERSION_RE = /^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$/;
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export function normalizeSha256(value: string): string {
   return value.trim().toLowerCase().replace(/^sha256:/, "");
@@ -66,6 +68,12 @@ function resolveAllowedRemoteUrl(value: string, base?: string): string {
   return parsed.toString();
 }
 
+function assertSameOrigin(url: string, manifestUrl: string, label: string): void {
+  if (new URL(url).origin !== new URL(manifestUrl).origin) {
+    throw new Error(`${label} must use the same origin as dataset-manifest.json`);
+  }
+}
+
 function responseContentLength(response: Response): number | null {
   const raw = response.headers?.get?.("content-length");
   if (!raw) return null;
@@ -79,11 +87,15 @@ async function fetchWithTimeout(url: string, timeoutMs = DEFAULT_TIMEOUT_MS): Pr
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    return await fetch(safeUrl, {
+    const response = await fetch(safeUrl, {
       cache: "no-store",
       redirect: "follow",
       signal: controller.signal,
     });
+    // Re-validate the final URL after redirects. This rejects an HTTPS endpoint
+    // redirecting the WebView to an insecure/non-local HTTP origin.
+    resolveAllowedRemoteUrl(response.url || safeUrl);
+    return response;
   } finally {
     clearTimeout(timer);
   }
@@ -156,11 +168,11 @@ export async function fetchDatasetManifest(url: string): Promise<RemoteDatasetMa
   if (manifest.stage !== "production") {
     throw new Error(`Remote dataset stage must be production, found: ${manifest.stage ?? "unknown"}`);
   }
-  if (!manifest.version?.trim()) {
-    throw new Error("Remote dataset manifest is missing version");
+  if (!manifest.version?.trim() || !VERSION_RE.test(manifest.version.trim())) {
+    throw new Error("Remote dataset manifest has an invalid version");
   }
-  if (!manifest.validFrom?.trim()) {
-    throw new Error("Remote dataset manifest is missing validFrom");
+  if (!manifest.validFrom?.trim() || !ISO_DATE_RE.test(manifest.validFrom.trim())) {
+    throw new Error("Remote dataset manifest validFrom must use YYYY-MM-DD");
   }
   if (!manifest.datasetUrl?.trim()) {
     throw new Error("Remote dataset manifest is missing datasetUrl");
@@ -192,6 +204,8 @@ export async function fetchDatasetManifest(url: string): Promise<RemoteDatasetMa
 
   const manifestUrl = resolveAllowedRemoteUrl(response.url || requestedUrl);
   const resolvedDatasetUrl = resolveAllowedRemoteUrl(manifest.datasetUrl, manifestUrl);
+  assertSameOrigin(resolvedDatasetUrl, manifestUrl, "questions.json");
+
   const resolvedAssets = manifest.assets
     ? {
         ...manifest.assets,
@@ -199,9 +213,14 @@ export async function fetchDatasetManifest(url: string): Promise<RemoteDatasetMa
         url: resolveAllowedRemoteUrl(manifest.assets.url, manifestUrl),
       }
     : undefined;
+  if (resolvedAssets) {
+    assertSameOrigin(resolvedAssets.url, manifestUrl, "assets.zip");
+  }
 
   return {
     ...(manifest as RemoteDatasetManifest),
+    version: manifest.version.trim(),
+    validFrom: manifest.validFrom.trim(),
     sha256: datasetSha256,
     sourceSha256,
     datasetUrl: resolvedDatasetUrl,
@@ -210,7 +229,11 @@ export async function fetchDatasetManifest(url: string): Promise<RemoteDatasetMa
 }
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  // Copy to an ArrayBuffer-backed view so WebCrypto typings stay compatible
+  // across TypeScript/lib.dom versions.
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  const digest = await crypto.subtle.digest("SHA-256", copy.buffer);
   return Array.from(new Uint8Array(digest))
     .map((value) => value.toString(16).padStart(2, "0"))
     .join("");
