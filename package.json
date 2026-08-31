@@ -40,7 +40,9 @@
     "dataset:finalize": "pnpm dataset:image-review && pnpm dataset:promote && pnpm dataset:validate && pnpm dataset:publish && pnpm dataset:status",
     "dataset:test": "python -m unittest discover -s tools/dataset/tests -p \"test_*.py\" -v",
     "signs:validate": "node tools/traffic-signs/validate.mjs",
-    "signs:publish": "pnpm signs:validate && python tools/traffic-signs/publish.py"
+    "signs:publish": "pnpm signs:validate && python tools/traffic-signs/publish.py",
+    "signs:test": "python -m unittest discover -s tools/traffic-signs/tests -p \"test_*.py\" -v",
+    "data:test": "pnpm dataset:test && pnpm signs:test"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
