@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 import sys
 import zipfile
@@ -25,15 +26,27 @@ def load_dataset() -> dict:
         return json.load(handle)
 
 
+def safe_relative_asset_path(value: str) -> str:
+    raw = value.replace("\\", "/")
+    if raw.startswith("/") or re.match(r"^[A-Za-z]:", raw):
+        raise ValueError(f"unsafe traffic sign asset path: {value}")
+
+    if raw.startswith("./"):
+        raw = raw[2:]
+
+    segments = [segment for segment in raw.split("/") if segment]
+    if not segments or any(segment in {".", ".."} for segment in segments):
+        raise ValueError(f"unsafe traffic sign asset path: {value}")
+
+    return "/".join(segments)
+
+
 def referenced_assets(dataset: dict) -> list[str]:
     paths: set[str] = set()
     for sign in dataset.get("signs", []):
         image = sign.get("image")
         if isinstance(image, str) and image.strip():
-            normalized = image.replace("\\", "/").lstrip("./")
-            if normalized.startswith("/") or ".." in normalized.split("/"):
-                raise ValueError(f"unsafe traffic sign asset path: {image}")
-            paths.add(normalized)
+            paths.add(safe_relative_asset_path(image.strip()))
     return sorted(paths)
 
 
