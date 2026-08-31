@@ -1,89 +1,85 @@
 # Local Windows release
 
-Dự án không tự chạy GitHub Actions khi push/PR. Validation và release được thực hiện local trên máy Windows.
+Validation/release được thực hiện local trên Windows. GitHub validation workflow là manual-only.
 
-## 1. Chuẩn bị hai endpoint production
-
-Tạo `.env.production` từ `.env.example`:
+## Production environment
 
 ```env
 VITE_QUESTIONS_MANIFEST_URL=https://data.example.com/lythuyetlaixe/questions/dataset-manifest.json
 VITE_TRAFFIC_SIGNS_MANIFEST_URL=https://data.example.com/lythuyetlaixe/traffic-signs/manifest.json
 ```
 
-Installer không chứa production 600 câu hoặc catalog biển báo đầy đủ. Mỗi dataset tải/import độc lập vào SQLite/AppData.
+Installer không bundle production 600 câu hoặc full traffic-sign catalog. Hai dataset bootstrap/import độc lập.
 
-## 2. Kiểm tra local trước release
+## Local verification before release
 
 ```powershell
 pnpm install
-pnpm test
+pnpm release:check
 pnpm build
+pnpm test
 cargo check --manifest-path src-tauri/Cargo.toml
+pnpm data:test
 ```
 
-Question dataset:
+Production data packages must already be validated/published locally:
 
-```powershell
-pnpm dataset:test
-pnpm dataset:validate
+```text
+dist/dataset/
+├── dataset-manifest.json
+└── releases/<questions-version>/...
+
+dist/traffic-signs/
+├── manifest.json
+└── releases/<sign-version>/...
 ```
 
-Traffic-sign dataset:
+R2 deployment must upload release payloads before root manifests.
 
-```powershell
-pnpm signs:validate
-```
-
-## 3. Build installer NSIS
+## Build NSIS
 
 ```powershell
 pnpm release:windows:local
 ```
 
-Output:
+Expected output:
 
 ```text
 src-tauri/target/release/bundle/nsis/
 ```
 
-## 4. Versioning
+## Versioning
 
-Application version phải đồng bộ ở:
+Application version is synchronized in:
 
 - `package.json`
 - `src-tauri/tauri.conf.json`
 - `src-tauri/Cargo.toml`
 
-Hai dataset có version độc lập với binary và với nhau:
+Questions and traffic signs have independent immutable dataset versions. Data-only changes do not require a new installer when the runtime contract remains compatible.
 
-```text
-App:           0.1.0
-Questions:     2025.06
-Traffic signs: 2025.01
-```
+## Windows verification checklist
 
-## 5. Release checklist
+- clean first-run downloads/imports questions;
+- traffic-sign background bootstrap imports independently;
+- migration v2 creates traffic-sign tables;
+- no SQLite transaction/interleaving errors while startup bootstrap overlaps user mutations;
+- offline restart supports Learning/Exam/Review and traffic-sign lookup;
+- both AppData asset roots render correctly;
+- questions update preserves progress/bookmarks/exam history and signs;
+- sign update preserves questions/user state;
+- missing local asset cache self-heals from unchanged immutable remote package;
+- same-version changed checksum is rejected;
+- Settings → Runtime Diagnostics has no unexplained production failures;
+- install/upgrade/uninstall works on Windows 10 and Windows 11;
+- installer upgrade preserves expected AppData/SQLite state.
 
-- `.env.production` có đúng hai HTTPS manifest URL.
-- First-run tải/import bộ 600 câu thành công.
-- First-run catalog biển báo tải/import độc lập.
-- SQLite migration v2 tạo `traffic_sign_metadata` và `traffic_signs`.
-- Mất mạng sau first-run vẫn học/thi/tra cứu biển báo được.
-- Question assets đọc từ `$APPDATA/dataset-assets/<version>/`.
-- Traffic-sign assets đọc từ `$APPDATA/traffic-sign-assets/<version>/`.
-- Update questions giữ progress/bookmark/exam history và không xóa traffic signs.
-- Update traffic signs không chạm bộ 600 câu.
-- Runtime Diagnostics kiểm tra riêng cả hai dataset.
-- Installer install/upgrade/uninstall được trên Windows 10/11.
+## Security before public distribution
 
-## 6. Security trước public release
+- use R2/custom domain as public read-only delivery;
+- CORS only needs read behavior for current Web Fetch transport;
+- never compile R2 write credentials/secrets into the application;
+- scope production CSP `connect-src` to the exact final data origin;
+- decide Windows code signing based on distribution channel.
 
-- R2/custom domain chỉ public read.
-- CORS GET/HEAD phù hợp.
-- Scope CSP `connect-src` về đúng custom domain thay vì generic `https:`.
-- Không nhúng R2 API secret vào app.
-
-## 7. Không dùng Actions tự động
-
-`.github/workflows/validate.yml` là manual-only. Validation mặc định thực hiện local.
+Detailed R2 layout: [`R2_DEPLOYMENT.md`](./R2_DEPLOYMENT.md).
