@@ -14,7 +14,7 @@ afterEach(() => {
 });
 
 describe("RemoteDatasetSource", () => {
-  it("resolves a relative dataset URL from the manifest URL", async () => {
+  it("resolves relative dataset and asset URLs from the final manifest URL", async () => {
     globalThis.fetch = vi.fn(async () => ({
       ok: true,
       status: 200,
@@ -26,6 +26,12 @@ describe("RemoteDatasetSource", () => {
         stage: "production",
         datasetUrl: "questions.json",
         sha256: "a".repeat(64),
+        assets: {
+          url: "assets.zip",
+          format: "zip",
+          sha256: "b".repeat(64),
+          fileCount: 42,
+        },
       }),
     })) as unknown as typeof fetch;
 
@@ -35,6 +41,9 @@ describe("RemoteDatasetSource", () => {
 
     expect(manifest.datasetUrl).toBe(
       "https://data.example.com/releases/current/questions.json",
+    );
+    expect(manifest.assets?.url).toBe(
+      "https://data.example.com/releases/current/assets.zip",
     );
   });
 

@@ -2,7 +2,7 @@
 
 Ứng dụng desktop học và thi thử lý thuyết lái xe Việt Nam, phát triển theo hướng **Windows Desktop trước, Android sau** bằng Tauri 2.
 
-> Trạng thái hiện tại: core learning/exam flow đã có; production dataset 600 câu đang được hoàn thiện và sẽ được phân phối từ remote storage thay vì bundle trong app.
+> Trạng thái hiện tại: core learning/exam flow đã có; production dataset 600 câu đang được hoàn thiện và được phân phối từ remote storage thay vì bundle trong app.
 
 ## Stack
 
@@ -10,6 +10,7 @@
 - React 19 + TypeScript.
 - Vite.
 - SQLite qua `@tauri-apps/plugin-sql`.
+- AppData asset cache qua `@tauri-apps/plugin-fs`.
 - pnpm.
 
 ## Kế hoạch
@@ -24,7 +25,7 @@ Cần cài:
 2. pnpm.
 3. Rust stable MSVC.
 4. Microsoft C++ Build Tools / Visual Studio Build Tools theo prerequisite của Tauri.
-5. WebView2 (Windows 10 thường cần kiểm tra; Windows 11 đã tích hợp rộng rãi).
+5. WebView2.
 
 Kiểm tra Rust:
 
@@ -42,7 +43,7 @@ pnpm --version
 
 ## Cấu hình remote dataset
 
-Production build không chứa trực tiếp bộ 600 câu. App kiểm tra một manifest cố định và chỉ tải dataset khi máy chưa có dữ liệu hoặc version/checksum thay đổi.
+Production build không chứa trực tiếp bộ 600 câu hoặc hình biển báo/sa hình. App kiểm tra một manifest cố định và chỉ tải payload khi máy chưa có dữ liệu hoặc version/checksum thay đổi.
 
 Tạo `.env` từ `.env.example`:
 
@@ -53,10 +54,16 @@ VITE_DATASET_MANIFEST_URL=https://data.example.com/lythuyetlaixe/dataset-manifes
 Luồng lần chạy đầu:
 
 ```text
-manifest → download questions.json → SHA-256 → validate → import SQLite
+manifest
+   ↓
+questions.json → SHA-256 → validate
+   ↓
+assets.zip (nếu có ảnh) → SHA-256 → safe unzip → AppData
+   ↓
+transaction import SQLite
 ```
 
-Sau đó ứng dụng dùng SQLite local và có thể hoạt động offline. Chi tiết nằm trong [`docs/REMOTE_DATASET.md`](./docs/REMOTE_DATASET.md).
+Sau đó ứng dụng dùng SQLite + asset cache local và có thể hoạt động offline. Chi tiết nằm trong [`docs/REMOTE_DATASET.md`](./docs/REMOTE_DATASET.md).
 
 ## Chạy frontend
 
@@ -84,7 +91,7 @@ pnpm build
 
 ## Build Tauri
 
-Bundle installer đang được để `active: false` trong foundation. Phase Desktop Production sẽ bổ sung bundle target và workflow release.
+Bundle installer đang để `active: false`. Phase Desktop Production sẽ bật bundle target và workflow release.
 
 ```powershell
 pnpm tauri:build
@@ -92,7 +99,7 @@ pnpm tauri:build
 
 ## Publish dataset
 
-Sau khi `data/processed/questions.json` đã vượt qua production validator:
+Sau khi `data/processed/questions.json` đã vượt qua production validator, ảnh được đặt dưới `data/processed/assets/` với path tương ứng `question.image`.
 
 ```powershell
 pnpm dataset:publish
@@ -103,12 +110,13 @@ Lệnh tạo:
 ```text
 dist/dataset/
 ├── dataset-manifest.json
-└── questions.json
+├── questions.json
+└── assets.zip              # chỉ sinh khi dataset tham chiếu ảnh
 ```
 
-Upload hai file này vào cùng một thư mục trên remote storage/CDN. Khi cập nhật dataset, upload `questions.json` trước và thay `dataset-manifest.json` sau cùng.
+Upload payload (`questions.json`, `assets.zip`) trước và thay `dataset-manifest.json` sau cùng. Manifest chứa SHA-256, size và fileCount để app xác minh trước khi kích hoạt version mới.
 
-## SQLite
+## SQLite và asset cache
 
 Database local:
 
@@ -116,7 +124,13 @@ Database local:
 sqlite:lythuyetlaixe.db
 ```
 
-Migration đầu tiên tạo schema cho:
+Ảnh local:
+
+```text
+$APPDATA/dataset-assets/<version>/images/...
+```
+
+Migration tạo schema cho:
 
 - dataset metadata;
 - categories;
@@ -126,7 +140,7 @@ Migration đầu tiên tạo schema cho:
 - bookmarks;
 - exam sessions/history.
 
-Không nhập dữ liệu câu hỏi không được kiểm chứng vào migration. Runtime source of truth sau khi tải là SQLite local; JSON remote chỉ dùng trong quá trình download/verify/import.
+Không nhập dữ liệu câu hỏi chưa kiểm chứng vào migration. Runtime source of truth sau khi tải là SQLite local; JSON remote chỉ tồn tại trong memory trong quá trình download/verify/import. `questions.image_path` lưu relative path, repository chuyển thành Tauri asset URL khi đọc câu hỏi.
 
 ## Android sau này
 
@@ -148,12 +162,15 @@ src/
 ├── data/                # dữ liệu demo cho browser development
 ├── domain/              # entity/domain types
 ├── features/            # feature UI
-├── infrastructure/      # SQLite + remote dataset adapters
+├── infrastructure/
+│   ├── assets/          # remote asset download/cache
+│   ├── database/        # SQLite + dataset bootstrap
+│   └── repositories/
 └── styles/
 
 src-tauri/
 ├── capabilities/
-├── src/                 # Rust + database migrations
+├── src/                 # Rust + database migrations/plugins
 ├── Cargo.toml
 └── tauri.conf.json
 ```
@@ -164,4 +181,5 @@ src-tauri/
 - AI không được tự suy đoán đáp án chính thức.
 - Dataset phải có version, checksum và validator.
 - Dataset version đã phát hành là bất biến; thay đổi dữ liệu phải tạo version mới.
+- Payload mới chỉ được kích hoạt sau khi JSON và assets đều verify thành công.
 - UI không hard-code quy định thi.

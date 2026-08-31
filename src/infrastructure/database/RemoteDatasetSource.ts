@@ -1,5 +1,13 @@
 import type { ProductionDataset } from "./DatasetImporter";
 
+export interface RemoteAssetPackage {
+  url: string;
+  sha256: string;
+  sizeBytes?: number;
+  format: "zip";
+  fileCount?: number;
+}
+
 export interface RemoteDatasetManifest {
   dataset: "VN_GPLX_600";
   version: string;
@@ -8,11 +16,12 @@ export interface RemoteDatasetManifest {
   datasetUrl: string;
   sha256: string;
   sizeBytes?: number;
+  assets?: RemoteAssetPackage;
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
-function normalizeSha256(value: string): string {
+export function normalizeSha256(value: string): string {
   return value.trim().toLowerCase().replace(/^sha256:/, "");
 }
 
@@ -55,11 +64,25 @@ export async function fetchDatasetManifest(url: string): Promise<RemoteDatasetMa
   if (!manifest.sha256?.trim()) {
     throw new Error("Remote dataset manifest is missing sha256");
   }
+  if (manifest.assets) {
+    if (manifest.assets.format !== "zip") {
+      throw new Error(`Unsupported asset package format: ${String(manifest.assets.format)}`);
+    }
+    if (!manifest.assets.url?.trim() || !manifest.assets.sha256?.trim()) {
+      throw new Error("Remote asset package requires url and sha256");
+    }
+  }
 
   const manifestUrl = response.url || url;
   return {
     ...(manifest as RemoteDatasetManifest),
     datasetUrl: new URL(manifest.datasetUrl, manifestUrl).toString(),
+    assets: manifest.assets
+      ? {
+          ...manifest.assets,
+          url: new URL(manifest.assets.url, manifestUrl).toString(),
+        }
+      : undefined,
   };
 }
 
@@ -70,26 +93,42 @@ async function sha256Hex(buffer: ArrayBuffer): Promise<string> {
     .join("");
 }
 
-export async function downloadDataset(manifest: RemoteDatasetManifest): Promise<ProductionDataset> {
-  const response = await fetchWithTimeout(manifest.datasetUrl, 120_000);
+export async function downloadVerifiedBytes(
+  url: string,
+  expectedSha256: string,
+  expectedSizeBytes: number | undefined,
+  label: string,
+  timeoutMs = 120_000,
+): Promise<Uint8Array> {
+  const response = await fetchWithTimeout(url, timeoutMs);
   if (!response.ok) {
-    throw new Error(`Cannot download dataset ${manifest.version}: HTTP ${response.status}`);
+    throw new Error(`Cannot download ${label}: HTTP ${response.status}`);
   }
 
   const buffer = await response.arrayBuffer();
-  if (manifest.sizeBytes !== undefined && buffer.byteLength !== manifest.sizeBytes) {
+  if (expectedSizeBytes !== undefined && buffer.byteLength !== expectedSizeBytes) {
     throw new Error(
-      `Dataset size mismatch: expected ${manifest.sizeBytes} bytes, received ${buffer.byteLength}`,
+      `${label} size mismatch: expected ${expectedSizeBytes} bytes, received ${buffer.byteLength}`,
     );
   }
 
   const actualSha256 = await sha256Hex(buffer);
-  const expectedSha256 = normalizeSha256(manifest.sha256);
-  if (actualSha256 !== expectedSha256) {
-    throw new Error(`Dataset checksum mismatch for version ${manifest.version}`);
+  if (actualSha256 !== normalizeSha256(expectedSha256)) {
+    throw new Error(`${label} checksum mismatch`);
   }
 
-  const dataset = JSON.parse(new TextDecoder().decode(buffer)) as ProductionDataset;
+  return new Uint8Array(buffer);
+}
+
+export async function downloadDataset(manifest: RemoteDatasetManifest): Promise<ProductionDataset> {
+  const bytes = await downloadVerifiedBytes(
+    manifest.datasetUrl,
+    manifest.sha256,
+    manifest.sizeBytes,
+    `dataset ${manifest.version}`,
+  );
+
+  const dataset = JSON.parse(new TextDecoder().decode(bytes)) as ProductionDataset;
   if (dataset.dataset !== manifest.dataset) {
     throw new Error("Dataset identity does not match remote manifest");
   }
@@ -109,6 +148,6 @@ export async function downloadDataset(manifest: RemoteDatasetManifest): Promise<
 
   return {
     ...dataset,
-    sourceSha256: actualSha256,
+    sourceSha256: normalizeSha256(manifest.sha256),
   };
 }
