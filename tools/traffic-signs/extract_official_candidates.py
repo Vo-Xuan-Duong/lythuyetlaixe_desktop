@@ -9,7 +9,7 @@ import fitz
 
 from source_provenance import DEFAULT_MANIFEST, inspect_multipart_source
 
-ROOT = DEFAULT_MANIFEST.parents[2]
+ROOT = DEFAULT_MANIFEST.parents[3]
 OUTPUT = ROOT / "data" / "traffic-signs" / "raw" / "official-candidates.json"
 HEADING_RE = re.compile(r"^([B-F])\.\s*(\d+[A-Z]?)\s*BIEN\s+SO\s+(.+)$")
 EXPLICIT_CODE_RE = re.compile(r"\b(?:DP|P|W|R|I|S|IE|SE)(?:\.[A-Z])?[,.]\s*\d+[A-Z]?\b")
@@ -54,8 +54,6 @@ def extract_codes(value: str) -> list[str]:
             normalized_suffix = suffix.strip().upper()
             if normalized_suffix:
                 codes.add(f"{base}{normalized_suffix}")
-        # A parenthesized variant list denotes the variants, not an additional
-        # unsuffixed sign code. Remove an accidentally captured base.
         codes.discard(base)
     return sorted(codes)
 
