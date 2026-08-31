@@ -16,6 +16,9 @@
 .traffic-sign-detail-body p { margin: 0; color: var(--text); line-height: 1.55; }
 .traffic-sign-detail-body small { color: var(--muted); line-height: 1.45; }
 .traffic-sign-detail-body b { color: var(--text); }
+.traffic-sign-source { padding-top: 7px; border-top: 1px solid #edf0f4; }
+.traffic-sign-pagination { display: flex; align-items: center; justify-content: center; gap: 14px; padding-top: 6px; }
+.traffic-sign-pagination span { min-width: 190px; color: var(--muted); text-align: center; font-size: 13px; font-weight: 700; }
 
 @media (max-width: 950px) {
   .traffic-sign-catalog-grid { grid-template-columns: 1fr; }
@@ -27,6 +30,9 @@
   .traffic-sign-detail-card { grid-template-columns: 105px minmax(0, 1fr); gap: 12px; padding: 12px; }
   .traffic-sign-detail-image { min-height: 100px; }
   .traffic-sign-detail-image img { height: 100px; }
+  .traffic-sign-pagination { align-items: stretch; flex-direction: column; }
+  .traffic-sign-pagination span { min-width: 0; order: -1; }
+  .traffic-sign-pagination button { width: 100%; }
 }
 
 @media (max-width: 430px) {
