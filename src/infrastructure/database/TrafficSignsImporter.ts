@@ -1,5 +1,6 @@
 import type Database from "@tauri-apps/plugin-sql";
 import {
+  MAX_TRAFFIC_SIGN_COUNT,
   TRAFFIC_SIGN_GROUP_CODES,
   type TrafficSignGroupCode,
   type TrafficSignRecord,
@@ -69,6 +70,12 @@ function assertStringArray(value: unknown, label: string): asserts value is stri
   }
 }
 
+function assertOptionalString(value: unknown, label: string): void {
+  if (value !== undefined && value !== null && typeof value !== "string") {
+    throw new Error(`${label} must be a string when provided`);
+  }
+}
+
 export function validateTrafficSignsDataset(dataset: TrafficSignsDataset): void {
   if (dataset.dataset !== "VN_TRAFFIC_SIGNS") {
     throw new Error(`Unsupported traffic signs dataset: ${dataset.dataset}`);
@@ -91,10 +98,13 @@ export function validateTrafficSignsDataset(dataset: TrafficSignsDataset): void 
   if (!Array.isArray(dataset.signs) || dataset.signs.length === 0) {
     throw new Error("Traffic signs dataset must contain at least one verified sign");
   }
+  if (dataset.signs.length > MAX_TRAFFIC_SIGN_COUNT) {
+    throw new Error(`Traffic signs dataset exceeds maximum of ${MAX_TRAFFIC_SIGN_COUNT} records`);
+  }
 
   const codes = new Set<string>();
   for (const sign of dataset.signs) {
-    const code = sign.code?.trim();
+    const code = typeof sign.code === "string" ? sign.code.trim() : "";
     if (!code || !SIGN_CODE_RE.test(code)) {
       throw new Error(`Invalid traffic sign code: ${String(sign.code)}`);
     }
@@ -103,10 +113,13 @@ export function validateTrafficSignsDataset(dataset: TrafficSignsDataset): void 
     }
     codes.add(code);
 
-    if (!sign.name?.trim()) throw new Error(`${code}: name is required`);
+    if (typeof sign.name !== "string" || !sign.name.trim()) throw new Error(`${code}: name is required`);
     if (!GROUP_CODES.has(sign.groupCode)) throw new Error(`${code}: invalid group ${String(sign.groupCode)}`);
-    if (!sign.meaning?.trim()) throw new Error(`${code}: meaning is required`);
-    if (!sign.sourceVersion?.trim()) throw new Error(`${code}: sourceVersion is required`);
+    if (typeof sign.meaning !== "string" || !sign.meaning.trim()) throw new Error(`${code}: meaning is required`);
+    if (typeof sign.sourceVersion !== "string" || !sign.sourceVersion.trim()) throw new Error(`${code}: sourceVersion is required`);
+    assertOptionalString(sign.recognition, `${code}: recognition`);
+    assertOptionalString(sign.scope, `${code}: scope`);
+    assertOptionalString(sign.notes, `${code}: notes`);
     assertStringArray(sign.exceptions, `${code}: exceptions`);
     assertStringArray(sign.keywords, `${code}: keywords`);
 
@@ -163,10 +176,10 @@ async function upsertSign(db: Database, sign: TrafficSignRecord): Promise<void> 
       sign.meaning.trim(),
       sign.recognition?.trim() || null,
       sign.scope?.trim() || null,
-      JSON.stringify(sign.exceptions),
+      JSON.stringify(sign.exceptions.map((value) => value.trim())),
       sign.notes?.trim() || null,
       sign.image ? safeImagePath(sign.image) : null,
-      JSON.stringify(sign.keywords),
+      JSON.stringify(sign.keywords.map((value) => value.trim())),
       sign.sourceVersion.trim(),
     ],
   );
