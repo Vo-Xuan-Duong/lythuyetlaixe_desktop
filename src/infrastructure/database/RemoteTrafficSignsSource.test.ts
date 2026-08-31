@@ -36,27 +36,34 @@ async function digestHex(bytes: Uint8Array): Promise<string> {
     .join("");
 }
 
+function manifestFixture(overrides: Record<string, unknown> = {}) {
+  return {
+    dataset: "VN_TRAFFIC_SIGNS",
+    version: "2025.01",
+    validFrom: "2025-01-01",
+    stage: "production",
+    datasetUrl: "traffic-signs.json",
+    sha256: "a".repeat(64),
+    sourceDocument: "QCVN 41:2024/BGTVT",
+    sourceSha256: "b".repeat(64),
+    sourcePartCount: 5,
+    signCount: 123,
+    ...overrides,
+  };
+}
+
 describe("RemoteTrafficSignsSource", () => {
-  it("requires signCount and resolves same-origin relative URLs", async () => {
+  it("requires the five-part source bundle and resolves same-origin relative URLs", async () => {
     globalThis.fetch = vi.fn(async () =>
       byteResponse(
-        {
-          dataset: "VN_TRAFFIC_SIGNS",
-          version: "2025.01",
-          validFrom: "2025-01-01",
-          stage: "production",
-          datasetUrl: "traffic-signs.json",
-          sha256: "a".repeat(64),
-          sourceDocument: "QCVN 41:2024/BGTVT",
-          sourceSha256: "b".repeat(64),
-          signCount: 123,
+        manifestFixture({
           assets: {
             url: "traffic-sign-assets.zip",
             format: "zip",
             sha256: "c".repeat(64),
             fileCount: 100,
           },
-        },
+        }),
         "https://data.example.com/traffic-signs/manifest.json",
       ) as Response,
     ) as unknown as typeof fetch;
@@ -65,25 +72,29 @@ describe("RemoteTrafficSignsSource", () => {
       "https://data.example.com/traffic-signs/manifest.json",
     );
 
+    expect(manifest.sourcePartCount).toBe(5);
     expect(manifest.signCount).toBe(123);
     expect(manifest.datasetUrl).toBe("https://data.example.com/traffic-signs/traffic-signs.json");
     expect(manifest.assets?.url).toBe("https://data.example.com/traffic-signs/traffic-sign-assets.zip");
   });
 
+  it("rejects manifests whose official source part count is not five", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      byteResponse(
+        manifestFixture({ sourcePartCount: 4 }),
+        "https://data.example.com/traffic-signs/manifest.json",
+      ) as Response,
+    ) as unknown as typeof fetch;
+
+    await expect(
+      fetchTrafficSignsManifest("https://data.example.com/traffic-signs/manifest.json"),
+    ).rejects.toThrow("sourcePartCount");
+  });
+
   it("rejects manifests without a positive signCount", async () => {
     globalThis.fetch = vi.fn(async () =>
       byteResponse(
-        {
-          dataset: "VN_TRAFFIC_SIGNS",
-          version: "2025.01",
-          validFrom: "2025-01-01",
-          stage: "production",
-          datasetUrl: "traffic-signs.json",
-          sha256: "a".repeat(64),
-          sourceDocument: "QCVN 41:2024/BGTVT",
-          sourceSha256: "b".repeat(64),
-          signCount: 0,
-        },
+        manifestFixture({ signCount: 0 }),
         "https://data.example.com/traffic-signs/manifest.json",
       ) as Response,
     ) as unknown as typeof fetch;
@@ -96,17 +107,10 @@ describe("RemoteTrafficSignsSource", () => {
   it("rejects cross-origin catalog payloads", async () => {
     globalThis.fetch = vi.fn(async () =>
       byteResponse(
-        {
-          dataset: "VN_TRAFFIC_SIGNS",
-          version: "2025.01",
-          validFrom: "2025-01-01",
-          stage: "production",
+        manifestFixture({
           datasetUrl: "https://other.example.com/traffic-signs.json",
-          sha256: "a".repeat(64),
-          sourceDocument: "QCVN 41:2024/BGTVT",
-          sourceSha256: "b".repeat(64),
           signCount: 1,
-        },
+        }),
         "https://data.example.com/traffic-signs/manifest.json",
       ) as Response,
     ) as unknown as typeof fetch;
@@ -145,6 +149,7 @@ describe("RemoteTrafficSignsSource", () => {
       sha256,
       sourceDocument: "QCVN 41:2024/BGTVT",
       sourceSha256: "b".repeat(64),
+      sourcePartCount: 5,
       signCount: 1,
       sizeBytes: bytes.byteLength,
     };
