@@ -4,22 +4,30 @@ import {
   type TrafficSignsBootstrapStatus,
 } from "../infrastructure/database/TrafficSignsBootstrap";
 
-export function useTrafficSignsBootstrap() {
-  const [status, setStatus] = useState<TrafficSignsBootstrapStatus>({ state: "checking" });
+export interface TrafficSignsBootstrapController {
+  status: TrafficSignsBootstrapStatus;
+  retry: () => void;
+}
 
-  const retry = useCallback(() => {
-    setStatus({ state: "checking" });
-    void bootstrapTrafficSigns().then(setStatus);
-  }, []);
+export function useTrafficSignsBootstrap(): TrafficSignsBootstrapController {
+  const [status, setStatus] = useState<TrafficSignsBootstrapStatus>({ state: "checking" });
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let active = true;
+    setStatus({ state: "checking" });
+
     void bootstrapTrafficSigns().then((nextStatus) => {
       if (active) setStatus(nextStatus);
     });
+
     return () => {
       active = false;
     };
+  }, [attempt]);
+
+  const retry = useCallback(() => {
+    setAttempt((current) => current + 1);
   }, []);
 
   return { status, retry };
