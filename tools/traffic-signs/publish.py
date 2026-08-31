@@ -72,6 +72,10 @@ def main() -> None:
     if dataset.get("dataset") != "VN_TRAFFIC_SIGNS" or dataset.get("stage") != "production":
         raise ValueError("traffic-signs.json must be a production VN_TRAFFIC_SIGNS dataset")
 
+    signs = dataset.get("signs")
+    if not isinstance(signs, list) or not signs:
+        raise ValueError("traffic-signs.json must contain at least one verified sign")
+
     OUTPUT.mkdir(parents=True, exist_ok=True)
     output_dataset = OUTPUT / "traffic-signs.json"
     shutil.copyfile(INPUT, output_dataset)
@@ -88,6 +92,7 @@ def main() -> None:
         "sha256": sha256(output_dataset),
         "sourceDocument": dataset["sourceDocument"],
         "sourceSha256": str(dataset["sourceSha256"]).lower().removeprefix("sha256:"),
+        "signCount": len(signs),
         "sizeBytes": output_dataset.stat().st_size,
     }
 
@@ -105,7 +110,7 @@ def main() -> None:
         json.dump(manifest, handle, ensure_ascii=False, indent=2)
         handle.write("\n")
 
-    print(f"Published traffic signs dataset {dataset['version']}")
+    print(f"Published traffic signs dataset {dataset['version']} ({len(signs)} signs)")
     print(f"  {output_dataset}")
     if archive_path:
         print(f"  {archive_path} ({file_count} files)")
