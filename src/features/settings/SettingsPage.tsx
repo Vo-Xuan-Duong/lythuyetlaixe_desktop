@@ -66,7 +66,11 @@ export function SettingsPage({ datasetStatus, onCheckDataset }: SettingsPageProp
     };
   }, [datasetStatus, refreshKey]);
 
+  const canMutateLocalData = datasetStatus.state === "ready" && resetting === undefined;
+
   const reset = async (target: ResetTarget) => {
+    if (datasetStatus.state !== "ready") return;
+
     const labels: Record<ResetTarget, string> = {
       progress: "toàn bộ tiến độ học và lịch ôn",
       bookmarks: "toàn bộ câu đã đánh dấu",
@@ -157,19 +161,19 @@ export function SettingsPage({ datasetStatus, onCheckDataset }: SettingsPageProp
         <div className="settings-reset-list">
           <div>
             <div><strong>Reset tiến độ học</strong><span>Xóa mastery, số lần đúng/sai và lịch ôn tập.</span></div>
-            <button className="secondary-button" type="button" disabled={resetting !== undefined} onClick={() => void reset("progress")}>Reset</button>
+            <button className="secondary-button" type="button" disabled={!canMutateLocalData} onClick={() => void reset("progress")}>Reset</button>
           </div>
           <div>
             <div><strong>Xóa bookmark</strong><span>Bỏ toàn bộ câu bạn đã đánh dấu.</span></div>
-            <button className="secondary-button" type="button" disabled={resetting !== undefined} onClick={() => void reset("bookmarks")}>Xóa</button>
+            <button className="secondary-button" type="button" disabled={!canMutateLocalData} onClick={() => void reset("bookmarks")}>Xóa</button>
           </div>
           <div>
             <div><strong>Xóa lịch sử thi</strong><span>Xóa các phiên thi và câu trả lời đã lưu.</span></div>
-            <button className="secondary-button" type="button" disabled={resetting !== undefined} onClick={() => void reset("exams")}>Xóa</button>
+            <button className="secondary-button" type="button" disabled={!canMutateLocalData} onClick={() => void reset("exams")}>Xóa</button>
           </div>
           <div className="danger-row">
             <div><strong>Reset toàn bộ dữ liệu người dùng</strong><span>Giữ nguyên dataset/assets, chỉ xóa dữ liệu học cá nhân trên thiết bị.</span></div>
-            <button className="danger-button" type="button" disabled={resetting !== undefined} onClick={() => void reset("all")}>Reset tất cả</button>
+            <button className="danger-button" type="button" disabled={!canMutateLocalData} onClick={() => void reset("all")}>Reset tất cả</button>
           </div>
         </div>
       </section>
