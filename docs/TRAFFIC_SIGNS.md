@@ -1,77 +1,74 @@
 # Kiến thức và catalog biển báo giao thông
 
-Module `Kiến thức biển báo` gồm **hai lớp dữ liệu**:
+Module `Kiến thức biển báo` gồm hai lớp độc lập:
 
-1. kiến thức 5 nhóm cơ bản được bundle cùng binary để luôn đọc được;
-2. catalog từng biển là dataset production **độc lập hoàn toàn** với bộ 600 câu.
+1. kiến thức 5 nhóm cơ bản bundle cùng binary, luôn đọc được;
+2. catalog từng biển là remote dataset `VN_TRAFFIC_SIGNS`, tách khỏi bộ 600 câu.
 
-## Nguồn
+## Source/provenance
 
-Kiến thức phân loại hiện bám theo `QCVN 41:2024/BGTVT`, ban hành kèm `Thông tư 51/2024/TT-BGTVT`, hiệu lực từ `01/01/2025`.
+Kiến thức nhóm hiện bám theo `QCVN 41:2024/BGTVT`, ban hành kèm `Thông tư 51/2024/TT-BGTVT`, hiệu lực từ `01/01/2025`.
 
-Provenance của phần kiến thức nhóm nằm tại:
+Built-in provenance:
 
 ```text
 data/source/traffic-signs-knowledge-source.json
 ```
 
-Catalog từng biển phải có provenance riêng trong:
+Catalog provenance:
 
 ```text
-data/traffic-signs/source/
+data/traffic-signs/source/source-manifest.json
 ```
+
+Local source workflow:
+
+```powershell
+pnpm signs:source:download
+pnpm signs:status
+```
+
+PDF/raw source được giữ local. `source-manifest.json` lưu URL, filename và SHA-256 của snapshot nguồn dùng để xây catalog.
 
 Không dùng website/app luyện thi bên thứ ba làm source of truth.
 
-## Tách khỏi bộ 600 câu
+## Dataset isolation
 
 ```text
 600 questions
+├── env: VITE_QUESTIONS_MANIFEST_URL
 ├── metadata: dataset_metadata
 ├── tables: categories/questions/answers/...
-├── cache: $APPDATA/dataset-assets/<version>/
-└── env: VITE_QUESTIONS_MANIFEST_URL
+└── cache: $APPDATA/dataset-assets/<version>/
 
 Traffic signs
+├── env: VITE_TRAFFIC_SIGNS_MANIFEST_URL
 ├── metadata: traffic_sign_metadata
 ├── table: traffic_signs
-├── cache: $APPDATA/traffic-sign-assets/<version>/
-└── env: VITE_TRAFFIC_SIGNS_MANIFEST_URL
+└── cache: $APPDATA/traffic-sign-assets/<version>/
 ```
 
-Version/checksum/update của hai dataset không phụ thuộc nhau. App kiểm tra cả hai manifest khi khởi động; lỗi traffic-sign catalog không chặn luồng 600 câu.
+Version, checksums, update and asset cache are independent. App starts both bootstrap flows, but traffic-sign failure never blocks Learning/Exam or the built-in 5-group knowledge.
 
-## Traffic-sign record
-
-Production `traffic-signs.json` có dạng:
+## Record contract
 
 ```json
 {
-  "dataset": "VN_TRAFFIC_SIGNS",
-  "version": "2025.01",
-  "validFrom": "2025-01-01",
-  "stage": "production",
-  "sourceDocument": "QCVN 41:2024/BGTVT",
-  "sourceSha256": "<sha256-source-document>",
-  "signs": [
-    {
-      "code": "<official-code>",
-      "name": "<official-name>",
-      "groupCode": "PROHIBITION",
-      "meaning": "<verified-meaning>",
-      "recognition": "<optional>",
-      "scope": "<optional>",
-      "exceptions": [],
-      "notes": "<optional>",
-      "image": "signs/<file>.svg",
-      "keywords": [],
-      "sourceVersion": "QCVN 41:2024/BGTVT"
-    }
-  ]
+  "code": "<official-code>",
+  "name": "<official-name>",
+  "groupCode": "PROHIBITION",
+  "meaning": "<verified-meaning>",
+  "recognition": "<optional>",
+  "scope": "<optional>",
+  "exceptions": [],
+  "notes": "<optional>",
+  "image": "signs/<file>.svg",
+  "keywords": [],
+  "sourceVersion": "QCVN 41:2024/BGTVT"
 }
 ```
 
-`groupCode` chỉ nhận:
+Allowed groups:
 
 ```text
 PROHIBITION
@@ -81,56 +78,65 @@ INDICATION
 SUPPLEMENTARY
 ```
 
-Không thêm record cụ thể nếu tên/ý nghĩa/phạm vi chưa được đối chiếu nguồn chính thức.
+Runtime/release validation requires non-empty code/name/meaning/sourceVersion, known group, safe image path, supported image extension, string arrays, valid optional-string fields and at most 2,000 records per package.
 
-## Local workspace
+## Local processed workspace
 
 ```text
-data/traffic-signs/
-├── source/
-└── processed/
-    ├── traffic-signs.json
-    └── assets/
-        └── signs/...
+data/traffic-signs/processed/
+├── traffic-signs.json
+└── assets/
+    └── signs/...
 ```
 
-Validate:
+Generated processed files are ignored by Git.
+
+Status:
+
+```powershell
+pnpm signs:status
+```
+
+Validation/tests:
 
 ```powershell
 pnpm signs:validate
+pnpm signs:test
 ```
 
-Publish:
+Finalize:
 
 ```powershell
-pnpm signs:publish
+pnpm signs:finalize
 ```
 
-Output:
+## Versioned distribution output
 
 ```text
 dist/traffic-signs/
 ├── manifest.json
-├── traffic-signs.json
-└── traffic-sign-assets.zip   # chỉ có nếu dataset dùng ảnh
+└── releases/
+    └── <version>/
+        ├── traffic-signs.json
+        └── traffic-sign-assets.zip   # only when images are referenced
 ```
 
-Manifest có contract:
+The root manifest points to the immutable release payload:
 
 ```json
 {
   "dataset": "VN_TRAFFIC_SIGNS",
-  "version": "2025.01",
-  "validFrom": "2025-01-01",
+  "version": "<version>",
+  "validFrom": "YYYY-MM-DD",
   "stage": "production",
-  "datasetUrl": "traffic-signs.json",
+  "datasetUrl": "releases/<version>/traffic-signs.json",
   "sha256": "<traffic-signs.json sha256>",
   "sourceDocument": "QCVN 41:2024/BGTVT",
   "sourceSha256": "<source document sha256>",
   "signCount": 123,
   "sizeBytes": 123456,
   "assets": {
-    "url": "traffic-sign-assets.zip",
+    "url": "releases/<version>/traffic-sign-assets.zip",
     "format": "zip",
     "sha256": "<asset archive sha256>",
     "sizeBytes": 654321,
@@ -139,49 +145,36 @@ Manifest có contract:
 }
 ```
 
-`signCount` bắt buộc và được cross-check với số record thật trong `traffic-signs.json`. Nếu cùng version/checksum nhưng local thiếu row hoặc mất asset directory, bootstrap được phép tải lại **chính package bất biến đó** để tự phục hồi. Nếu checksum remote đổi mà version không đổi, app giữ local snapshot và cảnh báo.
+Publisher refuses different bytes under an already-generated release version. Change content by bumping the traffic-sign dataset version.
 
-## R2 layout đề xuất
+## Runtime integrity/self-heal
+
+Runtime verifies HTTPS/same-origin URLs, size limits, SHA-256, source provenance, identity/stage/version/validFrom/signCount and record schema before SQLite import.
+
+If the same immutable remote version/checksums are still valid but local rows or asset directory are damaged, app may re-download that exact package to self-heal. If remote bytes change without a version bump, app keeps the local snapshot and warns.
+
+## Catalog UI
+
+The native catalog supports:
+
+- search by code/name/meaning/keywords;
+- filter by 5 groups;
+- 48 records per page;
+- image, meaning, recognition, scope, exceptions, notes and source version;
+- offline access after first successful install.
+
+## R2
+
+Target:
 
 ```text
-lythuyetlaixe/
-├── questions/
-│   ├── dataset-manifest.json
-│   └── releases/<version>/...
-└── traffic-signs/
-    ├── manifest.json
-    └── releases/<version>/...
+lythuyetlaixe/traffic-signs/
+├── manifest.json
+└── releases/<version>/...
 ```
 
-App dùng hai URL khác nhau:
+Upload release payload first and `manifest.json` last. See [`R2_DEPLOYMENT.md`](./R2_DEPLOYMENT.md).
 
-```env
-VITE_QUESTIONS_MANIFEST_URL=https://data.example.com/lythuyetlaixe/questions/dataset-manifest.json
-VITE_TRAFFIC_SIGNS_MANIFEST_URL=https://data.example.com/lythuyetlaixe/traffic-signs/manifest.json
-```
+## Relation to the 600-question bank
 
-## Runtime traffic-sign flow
-
-```text
-traffic-signs/manifest.json
-        ↓
-verify version/signCount/source/content SHA-256
-        ↓
-traffic-signs.json
-        ↓
-validate code/group/name/meaning/image path
-        ↓
-traffic-sign-assets.zip
-        ↓
-safe AppData install
-        ↓
-SQLite transaction → traffic_signs
-        ↓
-offline catalog
-```
-
-Nếu download/update lỗi nhưng máy đã có version hợp lệ, app giữ catalog local.
-
-## Quan hệ với đáp án 600 câu
-
-Catalog biển báo dùng để học/tra cứu. Nó **không phải nguồn đáp án** cho bộ 600 câu. Nhóm `ROAD_SIGNS` trong bộ 600 câu vẫn phải qua answer/image verification pipeline riêng.
+Traffic-sign catalog is for learning/reference. It **must not** be used to infer official answers in `VN_GPLX_600`. Questions in `ROAD_SIGNS` remain governed by the separate verified question pipeline.
