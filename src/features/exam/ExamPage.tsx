@@ -4,6 +4,7 @@ import type { LicenseType } from "../../domain/entities/question";
 import { createExamSession, remainingExamSeconds, scoreExam } from "../../domain/services/examEngine";
 import { EXAM_CONFIGS, resolveExamConfig } from "../../domain/services/examConfigs";
 import type { DatasetBootstrapStatus } from "../../infrastructure/database/DatasetBootstrap";
+import { getDefaultExamLicense, setDefaultExamLicense } from "../../infrastructure/preferences/AppPreferences";
 import { SqliteExamHistoryRepository } from "../../infrastructure/repositories/SqliteExamHistoryRepository";
 import { SqliteQuestionRepository } from "../../infrastructure/repositories/SqliteQuestionRepository";
 import { ExamResultReview } from "./ExamResultReview";
@@ -24,7 +25,7 @@ function formatDuration(seconds: number): string {
 }
 
 export function ExamPage({ datasetStatus }: ExamPageProps) {
-  const [licenseType, setLicenseType] = useState<LicenseType>("B");
+  const [licenseType, setLicenseType] = useState<LicenseType>(() => getDefaultExamLicense());
   const [session, setSession] = useState<ExamSession | null>(null);
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -35,6 +36,10 @@ export function ExamPage({ datasetStatus }: ExamPageProps) {
   const [error, setError] = useState<string>();
 
   const config = useMemo(() => resolveExamConfig(licenseType, new Date()), [licenseType]);
+
+  useEffect(() => {
+    setDefaultExamLicense(licenseType);
+  }, [licenseType]);
 
   const submitExam = useCallback(async () => {
     if (!session || result) return;
