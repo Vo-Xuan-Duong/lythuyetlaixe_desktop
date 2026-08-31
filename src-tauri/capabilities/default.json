@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Quyền tối thiểu cho cửa sổ chính, SQLite local, preference store, notification và cache asset trong AppData",
+  "description": "Quyền tối thiểu cho cửa sổ chính, SQLite local, preference store, notification và hai cache asset trong AppData",
   "windows": ["main"],
   "permissions": [
     "core:default",
@@ -18,7 +18,9 @@
       "identifier": "fs:scope",
       "allow": [
         "$APPDATA/dataset-assets",
-        "$APPDATA/dataset-assets/**/*"
+        "$APPDATA/dataset-assets/**/*",
+        "$APPDATA/traffic-sign-assets",
+        "$APPDATA/traffic-sign-assets/**/*"
       ]
     }
   ]
