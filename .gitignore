@@ -20,6 +20,8 @@ data/processed/*
 data/traffic-signs/source/*
 !data/traffic-signs/source/README.md
 !data/traffic-signs/source/source-manifest.json
+data/traffic-signs/raw/*
+!data/traffic-signs/raw/.gitkeep
 
 # Verified/generated traffic-sign payload and images are published to R2, not Git.
 data/traffic-signs/processed/*
