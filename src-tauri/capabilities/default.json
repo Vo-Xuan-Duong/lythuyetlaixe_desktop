@@ -7,8 +7,19 @@
     "core:default",
     "sql:default",
     "sql:allow-execute",
-    "fs:default",
     "store:default",
-    "notification:default"
+    "notification:default",
+    "fs:create-app-specific-dirs",
+    "fs:allow-exists",
+    "fs:allow-mkdir",
+    "fs:allow-remove",
+    "fs:allow-write-file",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        "$APPDATA/dataset-assets",
+        "$APPDATA/dataset-assets/**/*"
+      ]
+    }
   ]
 }
