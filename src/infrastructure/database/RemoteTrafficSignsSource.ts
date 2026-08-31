@@ -20,6 +20,7 @@ export interface RemoteTrafficSignsManifest {
   sha256: string;
   sourceDocument: string;
   sourceSha256: string;
+  sourcePartCount: number;
   signCount: number;
   sizeBytes?: number;
   assets?: RemoteTrafficSignsAssetPackage;
@@ -29,6 +30,7 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_MANIFEST_BYTES = 128 * 1024;
 const MAX_DATASET_BYTES = 8 * 1024 * 1024;
 export const MAX_TRAFFIC_SIGN_ASSET_BYTES = 64 * 1024 * 1024;
+const EXPECTED_SOURCE_PART_COUNT = 5;
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
 const VERSION_RE = /^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$/;
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -156,6 +158,11 @@ export async function fetchTrafficSignsManifest(url: string): Promise<RemoteTraf
   if (!manifest.sourceDocument?.trim()) throw new Error("Traffic signs manifest is missing sourceDocument");
   if (!manifest.sourceSha256?.trim()) throw new Error("Traffic signs manifest is missing sourceSha256");
 
+  assertPositiveInteger(manifest.sourcePartCount, "traffic signs sourcePartCount");
+  if (manifest.sourcePartCount !== EXPECTED_SOURCE_PART_COUNT) {
+    throw new Error(`traffic signs sourcePartCount must be ${EXPECTED_SOURCE_PART_COUNT}`);
+  }
+
   const signCount = manifest.signCount;
   assertPositiveInteger(signCount, "traffic signs signCount");
   if (signCount > MAX_TRAFFIC_SIGN_COUNT) {
@@ -190,6 +197,7 @@ export async function fetchTrafficSignsManifest(url: string): Promise<RemoteTraf
     version: manifest.version.trim(),
     validFrom: manifest.validFrom.trim(),
     sourceDocument: manifest.sourceDocument.trim(),
+    sourcePartCount: manifest.sourcePartCount,
     signCount,
     datasetUrl,
     sha256: contentSha256,
