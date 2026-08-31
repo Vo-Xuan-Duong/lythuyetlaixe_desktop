@@ -3,10 +3,7 @@ import type { LicenseType } from "../../domain/entities/question";
 const DEFAULT_LICENSE_KEY = "lythuyetlaixe.defaultExamLicense";
 const FALLBACK_LICENSE: LicenseType = "B";
 
-const LICENSE_TYPES = new Set<LicenseType>([
-  "A1",
-  "A",
-  "B1",
+export const SUPPORTED_EXAM_LICENSE_PREFERENCES: LicenseType[] = [
   "B",
   "C1",
   "C",
@@ -19,7 +16,9 @@ const LICENSE_TYPES = new Set<LicenseType>([
   "D1E",
   "D2E",
   "DE",
-]);
+];
+
+const LICENSE_TYPES = new Set<LicenseType>(SUPPORTED_EXAM_LICENSE_PREFERENCES);
 
 export function getDefaultExamLicense(): LicenseType {
   try {
