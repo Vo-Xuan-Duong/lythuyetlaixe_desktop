@@ -33,7 +33,7 @@ const GROUP_CODES = new Set<TrafficSignGroupCode>(TRAFFIC_SIGN_GROUP_CODES);
 const ALLOWED_IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".svg"]);
 const VERSION_RE = /^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$/;
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const SIGN_CODE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/;
+const SIGN_CODE_RE = /^[A-Za-z0-9][A-Za-z0-9.,_-]{0,31}$/;
 
 function normalizedChecksum(value?: string | null): string {
   return (value ?? "").trim().toLowerCase().replace(/^sha256:/, "");
@@ -241,8 +241,6 @@ export class TrafficSignsImporter {
 
     await db.execute("BEGIN IMMEDIATE TRANSACTION");
     try {
-      // Catalog versions are snapshots. Remove entries that no longer exist in
-      // the new official source before upserting the new version.
       await db.execute("DELETE FROM traffic_signs");
       for (const sign of dataset.signs) await upsertSign(db, sign);
 
