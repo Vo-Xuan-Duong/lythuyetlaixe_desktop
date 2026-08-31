@@ -42,14 +42,14 @@ Remote shape:
 Integrity:
 
 ```text
-sourceSha256  = official PDF SHA-256
+sourceSha256  = official CSGT PDF SHA-256
 contentSha256 = questions.json SHA-256
 assetSha256   = assets.zip SHA-256
 ```
 
 ## Traffic-sign version
 
-Version is independent from questions. Bump when the verified catalog, official meaning/scope/exceptions/keywords/images or source regulation snapshot changes.
+Version is independent from questions. Bump when verified catalog content, sign images, per-sign provenance or the official technical-source snapshot changes.
 
 Remote shape:
 
@@ -61,17 +61,33 @@ Remote shape:
     └── traffic-sign-assets.zip
 ```
 
+Traffic-sign official technical source is the ordered five-part Government Gazette publication of QCVN 41:2024/BGTVT:
+
+```text
+1359+1360
+1361+1362
+1363+1364
+1365+1366
+1367+1368
+```
+
 Integrity:
 
 ```text
-sourceSha256  = source regulation/document SHA-256
+partSha256[]  = SHA-256 of each exact Gazette PDF
+sourceSha256  = canonical SHA-256 of ordered (index, issue, partSha256) rows
+combinedSha256 = SHA-256 of merged local parsing PDF only
 contentSha256 = traffic-signs.json SHA-256
 assetSha256   = traffic-sign-assets.zip SHA-256
 ```
 
+`combinedSha256` is never the production source identity. It exists so local extraction can prove its merged PDF snapshot has not changed.
+
+Every traffic-sign production record also carries `sourceSection`, `sourcePages`, `verifiedBy`, `verifiedAt`. Records with images carry verified image provenance with QCVN source hash, section, page and crop.
+
 ## Immutable release rule
 
-Never publish changed bytes under an existing dataset version. Local publishers enforce this for their generated `releases/<version>` directories.
+Never publish changed bytes under an existing dataset version. Local publishers enforce this for generated `releases/<version>` directories.
 
 ```text
 same version + changed content = invalid
@@ -87,7 +103,7 @@ Questions:
 manifest → JSON verify → assets verify/install → serialized SQLite import → cleanup old question assets
 
 Traffic signs:
-manifest → JSON verify → assets verify/install → serialized SQLite import → cleanup old sign assets
+manifest → JSON/provenance verify → assets verify/install → serialized SQLite import → cleanup old sign assets
 ```
 
 Both network flows may run concurrently. SQLite mutations share an application-level write queue because both datasets and user data use the same SQLite handle.
@@ -102,7 +118,7 @@ Same version with a changed remote checksum is **not** self-heal; it is an inval
 
 ## Legacy question checksum migration
 
-Older development builds could store `questions.json` checksum in `dataset_metadata.sourceSha256`. Migration only occurs when the remote content checksum proves the exact relationship; runtime never guesses official source provenance.
+Older development builds could store `questions.json` checksum in `dataset_metadata.sourceSha256`. Migration only occurs when remote content checksum proves the exact relationship; runtime never guesses official source provenance.
 
 Traffic-sign dataset has no equivalent legacy migration.
 
@@ -116,6 +132,8 @@ migration v2 → traffic_sign_metadata/traffic_signs
 ```
 
 Content-only dataset updates do not require SQL migrations. Any schema change must add a new migration; do not rewrite historical migrations after release.
+
+Traffic-sign reviewer/page/image provenance is verified before import but intentionally not persisted into the compact catalog table; it remains in the immutable release JSON.
 
 ## User-data isolation
 
@@ -141,8 +159,8 @@ Traffic-sign catalog is a learning/reference source and must not infer official 
 | Question/sa hình image change | Yes | No | No |
 | Verified explanation change | Yes | No | No |
 | Sign name/meaning/scope change | No | Yes | No |
-| Sign image change | No | Yes | No |
-| Traffic-sign regulation changes | Usually no | Yes | Maybe if contract/UI changes |
+| Sign image/crop/provenance change | No | Yes | No |
+| Traffic-sign official source snapshot changes | No | Yes | Maybe if contract/UI changes |
 | UI/business-code change | No | No | Yes |
 | SQLite schema change | Maybe | Maybe | Yes |
 | Download/security logic change | No required data release | No required data release | Yes |
