@@ -1,5 +1,11 @@
 import { useEffect, useState } from "react";
+import type { LicenseType } from "../../domain/entities/question";
 import type { DatasetBootstrapStatus } from "../../infrastructure/database/DatasetBootstrap";
+import {
+  getDefaultExamLicense,
+  setDefaultExamLicense,
+  SUPPORTED_EXAM_LICENSE_PREFERENCES,
+} from "../../infrastructure/preferences/AppPreferences";
 import {
   SqliteSettingsRepository,
   type LocalApplicationInfo,
@@ -37,6 +43,7 @@ export function SettingsPage({ datasetStatus, onCheckDataset }: SettingsPageProp
   const [message, setMessage] = useState<string>();
   const [error, setError] = useState<string>();
   const [refreshKey, setRefreshKey] = useState(0);
+  const [defaultLicense, setDefaultLicense] = useState<LicenseType>(() => getDefaultExamLicense());
 
   useEffect(() => {
     let active = true;
@@ -67,6 +74,12 @@ export function SettingsPage({ datasetStatus, onCheckDataset }: SettingsPageProp
   }, [datasetStatus, refreshKey]);
 
   const canMutateLocalData = datasetStatus.state === "ready" && resetting === undefined;
+
+  const changeDefaultLicense = (value: LicenseType) => {
+    setDefaultLicense(value);
+    setDefaultExamLicense(value);
+    setMessage(`Đã đặt hạng ${value} làm mặc định cho Thi thử.`);
+  };
 
   const reset = async (target: ResetTarget) => {
     if (datasetStatus.state !== "ready") return;
@@ -104,7 +117,7 @@ export function SettingsPage({ datasetStatus, onCheckDataset }: SettingsPageProp
         <div>
           <span className="eyebrow">Application</span>
           <h1>Cài đặt</h1>
-          <p>Quản lý dataset local và dữ liệu học trên thiết bị. Các thao tác reset không xóa bộ câu hỏi đã tải.</p>
+          <p>Quản lý dataset local, tùy chọn thi và dữ liệu học trên thiết bị. Các thao tác reset không xóa bộ câu hỏi đã tải.</p>
         </div>
         <button
           className="primary-button"
@@ -143,6 +156,30 @@ export function SettingsPage({ datasetStatus, onCheckDataset }: SettingsPageProp
           <div><dt>Dataset SHA-256</dt><dd title={info?.sourceSha256 ?? undefined}>{shortHash(info?.sourceSha256 ?? null)}</dd></div>
           <div><dt>Assets SHA-256</dt><dd title={info?.assetSha256 ?? undefined}>{shortHash(info?.assetSha256 ?? null)}</dd></div>
         </dl>
+      </section>
+
+      <section className="settings-section">
+        <div className="settings-section-heading">
+          <div>
+            <span className="eyebrow">Thi thử</span>
+            <h2>Hạng GPLX mặc định</h2>
+          </div>
+        </div>
+        <div className="settings-preference-row">
+          <div>
+            <strong>Hạng sát hạch khi mở Thi thử</strong>
+            <span>Có thể đổi lại trực tiếp ở màn hình Thi thử bất kỳ lúc nào.</span>
+          </div>
+          <select
+            value={defaultLicense}
+            onChange={(event) => changeDefaultLicense(event.target.value as LicenseType)}
+            aria-label="Hạng GPLX mặc định"
+          >
+            {SUPPORTED_EXAM_LICENSE_PREFERENCES.map((license) => (
+              <option value={license} key={license}>Hạng {license}</option>
+            ))}
+          </select>
+        </div>
       </section>
 
       <section className="settings-section">
