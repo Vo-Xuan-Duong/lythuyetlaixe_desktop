@@ -19,6 +19,7 @@ def question(question_id: int) -> dict:
         "licenses": ["B"],
         "sourceVersion": "2025.06",
         "needsVerification": False,
+        "imageNeedsVerification": False,
         "parserWarnings": [],
         "answers": [
             {"key": "A", "content": "Đúng", "correct": True},
@@ -34,6 +35,11 @@ class PromoteDatasetTests(unittest.TestCase):
             "version": "2025.06",
             "validFrom": "2025-06-01",
             "parserWarnings": [],
+            "imageVerification": {
+                "method": "manual-provenance-gate",
+                "applied": 0,
+                "unresolved": 0,
+            },
             "questions": [question(index) for index in range(1, 601)],
         }
 
@@ -42,7 +48,8 @@ class PromoteDatasetTests(unittest.TestCase):
 
         self.assertEqual(result["stage"], "production")
         self.assertEqual(result["promotion"]["questionCount"], 600)
-        self.assertEqual(result["promotion"]["unresolved"], 0)
+        self.assertEqual(result["promotion"]["unresolvedAnswers"], 0)
+        self.assertEqual(result["promotion"]["unresolvedImages"], 0)
 
     def test_rejects_unresolved_question(self) -> None:
         dataset = self.valid_dataset()
@@ -50,7 +57,25 @@ class PromoteDatasetTests(unittest.TestCase):
 
         errors = promotion_errors(dataset)
 
-        self.assertTrue(any("still needs verification" in error for error in errors))
+        self.assertTrue(any("answer still needs verification" in error for error in errors))
+
+    def test_rejects_unverified_image(self) -> None:
+        dataset = self.valid_dataset()
+        dataset["questions"][300]["imageNeedsVerification"] = True
+        dataset["imageVerification"]["unresolved"] = 1
+
+        errors = promotion_errors(dataset)
+
+        self.assertTrue(any("image still needs verification" in error for error in errors))
+        self.assertTrue(any("image verification still has 1 unresolved" in error for error in errors))
+
+    def test_rejects_missing_image_verification_stage(self) -> None:
+        dataset = self.valid_dataset()
+        dataset.pop("imageVerification")
+
+        errors = promotion_errors(dataset)
+
+        self.assertTrue(any("image verification stage has not been applied" in error for error in errors))
 
     def test_rejects_parser_warning(self) -> None:
         dataset = self.valid_dataset()
