@@ -5,8 +5,8 @@ Validation/release được thực hiện local trên Windows. GitHub validation
 ## Production environment
 
 ```env
-VITE_QUESTIONS_MANIFEST_URL=https://data.example.com/lythuyetlaixe/questions/dataset-manifest.json
-VITE_TRAFFIC_SIGNS_MANIFEST_URL=https://data.example.com/lythuyetlaixe/traffic-signs/manifest.json
+VITE_QUESTIONS_MANIFEST_URL=https://<production-host>/lythuyetlaixe/questions/dataset-manifest.json
+VITE_TRAFFIC_SIGNS_MANIFEST_URL=https://<production-host>/lythuyetlaixe/traffic-signs/manifest.json
 ```
 
 Installer không bundle production 600 câu hoặc full traffic-sign catalog. Hai dataset bootstrap/import độc lập.
@@ -22,7 +22,7 @@ cargo check --manifest-path src-tauri/Cargo.toml
 pnpm data:test
 ```
 
-Production data packages must already be validated/published locally:
+Production packages must already exist locally:
 
 ```text
 dist/dataset/
@@ -34,7 +34,16 @@ dist/traffic-signs/
 └── releases/<sign-version>/...
 ```
 
-R2 deployment must upload release payloads before root manifests.
+Traffic-sign root manifest must carry `sourcePartCount = 5` and the canonical QCVN five-part source hash.
+
+After `.env.production`, packages and exact CSP origin are ready:
+
+```powershell
+pnpm project:status
+pnpm release:candidate:check
+```
+
+Do not call a build a release candidate while strict preflight has blockers.
 
 ## Build NSIS
 
@@ -62,6 +71,7 @@ Questions and traffic signs have independent immutable dataset versions. Data-on
 
 - clean first-run downloads/imports questions;
 - traffic-sign background bootstrap imports independently;
+- traffic-sign manifest with `sourcePartCount != 5` is rejected;
 - migration v2 creates traffic-sign tables;
 - no SQLite transaction/interleaving errors while startup bootstrap overlaps user mutations;
 - offline restart supports Learning/Exam/Review and traffic-sign lookup;
