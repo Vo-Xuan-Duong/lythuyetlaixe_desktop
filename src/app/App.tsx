@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { AppShell } from "../components/AppShell";
 import { CriticalPage } from "../features/critical/CriticalPage";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
@@ -11,15 +11,36 @@ import { SettingsPage } from "../features/settings/SettingsPage";
 import { StatisticsPage } from "../features/statistics/StatisticsPage";
 import type { AppSection } from "./navigation";
 import { useDatasetBootstrap } from "./useDatasetBootstrap";
+import { useNativeBackHandler } from "./useNativeBackHandler";
+
+const MAX_NAVIGATION_HISTORY = 20;
 
 export function App() {
-  const [section, setSection] = useState<AppSection>("dashboard");
+  const [sectionHistory, setSectionHistory] = useState<AppSection[]>(["dashboard"]);
   const { status: datasetStatus, retry: retryDataset } = useDatasetBootstrap();
+  const section = sectionHistory[sectionHistory.length - 1] ?? "dashboard";
+
+  const navigate = useCallback((nextSection: AppSection) => {
+    setSectionHistory((history) => {
+      const current = history[history.length - 1] ?? "dashboard";
+      if (current === nextSection) return history;
+      return [...history, nextSection].slice(-MAX_NAVIGATION_HISTORY);
+    });
+  }, []);
+
+  const navigateBack = useCallback(() => {
+    setSectionHistory((history) => (history.length > 1 ? history.slice(0, -1) : history));
+  }, []);
+
+  useNativeBackHandler(navigateBack, {
+    enabled: datasetStatus.state === "ready" && sectionHistory.length > 1,
+    priority: 10,
+  });
 
   const content = useMemo(() => {
     switch (section) {
       case "dashboard":
-        return <DashboardPage datasetStatus={datasetStatus} onNavigate={setSection} />;
+        return <DashboardPage datasetStatus={datasetStatus} onNavigate={navigate} />;
       case "learning":
         return <LearningPage datasetStatus={datasetStatus} />;
       case "critical":
@@ -45,14 +66,14 @@ export function App() {
       case "settings":
         return <SettingsPage datasetStatus={datasetStatus} onCheckDataset={retryDataset} />;
     }
-  }, [datasetStatus, retryDataset, section]);
+  }, [datasetStatus, navigate, retryDataset, section]);
 
   if (datasetStatus.state === "checking" || datasetStatus.state === "error") {
     return <DatasetSetupPage status={datasetStatus} onRetry={retryDataset} />;
   }
 
   return (
-    <AppShell activeSection={section} onNavigate={setSection}>
+    <AppShell activeSection={section} onNavigate={navigate}>
       {content}
     </AppShell>
   );
