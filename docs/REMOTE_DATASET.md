@@ -51,7 +51,7 @@ Learning / Exam / Review / Statistics offline
 Integrity metadata:
 
 ```text
-sourceSha256  = official source PDF SHA-256
+sourceSha256  = official CSGT source PDF SHA-256
 contentSha256 = installed questions.json SHA-256
 assetSha256   = installed assets.zip SHA-256
 ```
@@ -81,16 +81,44 @@ Publisher refuses different bytes under an existing release version.
 
 # Dataset 2 — Traffic signs
 
+Nguồn kỹ thuật production là QCVN 41:2024/BGTVT được Công báo Chính phủ phát hành thành đúng 5 phần:
+
+```text
+1359+1360
+1361+1362
+1363+1364
+1365+1366
+1367+1368
+```
+
+Provenance:
+
+```text
+part sourceSha256 × 5
+        ↓
+canonical bundle SHA-256
+        ↓
+manifest/source dataset sourceSha256
+
+5 PDF Công báo
+        ↓ merge local for parsing/review only
+combined PDF
+        ↓
+combinedSha256
+```
+
+`sourceSha256` không phải SHA-256 của PDF ghép. Runtime manifest yêu cầu `sourcePartCount = 5`.
+
 Runtime:
 
 ```text
 traffic-signs/manifest.json
         ↓
-manifest URL/version/signCount/provenance/checksum validation
+manifest URL/version/signCount/sourcePartCount/provenance/checksum validation
         ↓
 releases/<version>/traffic-signs.json
         ↓
-bounded SHA-256 + runtime catalog validation
+bounded SHA-256 + runtime catalog/provenance validation
         ↓
 releases/<version>/traffic-sign-assets.zip
         ↓
@@ -104,19 +132,34 @@ search/filter/pagination/detail offline
 Integrity metadata:
 
 ```text
-sourceSha256  = source regulation/document SHA-256
+sourceSha256  = canonical SHA-256 của bundle 5 PDF Công báo
 contentSha256 = installed traffic-signs.json SHA-256
 assetSha256   = installed traffic-sign-assets.zip SHA-256
 ```
 
-Catalog validation includes identity/stage/version/validFrom, `sourceDocument`, maximum record count, unique safe code, known group, required name/meaning/sourceVersion, typed optional fields/string arrays and safe image paths.
+Mỗi production sign record phải có provenance `sourceSection`, `sourcePages`, `verifiedBy`, `verifiedAt`. Nếu record có ảnh, ảnh phải có `imageVerified=true` và `imageSelection` trỏ về canonical source bundle với page/crop/processedAsset hợp lệ. Hai image method được chấp nhận là candidate render từ QCVN hoặc manual crop trực tiếp từ QCVN đã verify.
 
-Local source/status/finalize:
+Local pipeline:
 
 ```powershell
 pnpm signs:source:download
+pnpm signs:source:verify -- --reviewer "<name>"
+pnpm signs:candidates:official
+pnpm signs:candidates:images
+pnpm signs:review:prepare
+pnpm signs:review:workspace
+# review/export manual-review.json
+pnpm signs:review:images
+# reopen workspace, inspect processed image, set imageVerified explicitly
+pnpm signs:review:apply
+pnpm signs:validate
+pnpm signs:publish
 pnpm signs:status
-# build verified traffic-signs.json + assets
+```
+
+Hoặc sau khi review hoàn tất:
+
+```powershell
 pnpm signs:finalize
 ```
 
@@ -202,3 +245,14 @@ Detailed deployment policy: [`R2_DEPLOYMENT.md`](./R2_DEPLOYMENT.md).
 - Production CSP currently allows generic HTTPS until the final host is selected; scope `connect-src` to the exact R2 custom-domain origin before public release.
 
 SHA-256 proves payload integrity relative to the manifest. HTTPS/domain control is the current publisher trust model; signed manifests remain an optional post-1.0 hardening step.
+
+# Release preflight
+
+Sau khi local data + R2 config đã chuẩn bị:
+
+```powershell
+pnpm project:status
+pnpm release:candidate:check
+```
+
+`project:status` chỉ báo cáo. `release:candidate:check` trả mã lỗi nếu còn blocker static như thiếu lockfile, production packages, `.env.production`, checksum/count mismatch hoặc CSP còn generic `https:`.
