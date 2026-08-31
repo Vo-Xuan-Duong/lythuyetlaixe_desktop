@@ -7,6 +7,7 @@ const assetsRoot = process.argv[3] ?? "data/traffic-signs/processed/assets";
 const sourceManifestPath = process.argv[4] ?? "data/traffic-signs/source/source-manifest.json";
 const GROUPS = new Set(["PROHIBITION", "MANDATORY", "WARNING", "INDICATION", "SUPPLEMENTARY"]);
 const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".svg"]);
+const EXPECTED_GAZETTE_ISSUES = ["1359+1360", "1361+1362", "1363+1364", "1365+1366", "1367+1368"];
 const MAX_SIGN_COUNT = 2_000;
 const VERSION_RE = /^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -40,22 +41,30 @@ function sha256File(file) {
 function safeLocalFilename(value, label) {
   if (typeof value !== "string" || !value.trim()) fail(`${label} is required`);
   const filename = value.trim();
-  if (path.basename(filename) !== filename || filename === "." || filename === "..") {
-    fail(`${label} must be a plain filename`);
-  }
+  if (path.basename(filename) !== filename || filename === "." || filename === "..") fail(`${label} must be a plain filename`);
   return filename;
 }
 
-function canonicalBundleSha256(parts) {
-  if (!Array.isArray(parts) || parts.length === 0) fail(`technicalSource.parts is required`);
-  const rows = [];
+function checkedParts(parts) {
+  if (!Array.isArray(parts) || parts.length !== EXPECTED_GAZETTE_ISSUES.length) {
+    fail(`technicalSource.parts must contain exactly ${EXPECTED_GAZETTE_ISSUES.length} official Gazette parts`);
+  }
   parts.forEach((part, index) => {
     if (!part || typeof part !== "object") fail(`technicalSource.parts[${index + 1}] must be an object`);
     const issue = typeof part.issue === "string" ? part.issue.trim() : "";
+    if (issue !== EXPECTED_GAZETTE_ISSUES[index]) {
+      fail(`technicalSource.parts[${index + 1}].issue must be ${EXPECTED_GAZETTE_ISSUES[index]}, found ${issue || "<missing>"}`);
+    }
+  });
+  return parts;
+}
+
+function canonicalBundleSha256(parts) {
+  const rows = [];
+  checkedParts(parts).forEach((part, index) => {
     const checksum = normalizeSha(part.sourceSha256);
-    if (!issue) fail(`technicalSource.parts[${index + 1}].issue is required`);
     if (!SHA_RE.test(checksum)) fail(`technicalSource.parts[${index + 1}].sourceSha256 is invalid`);
-    rows.push(`${index + 1}|${issue}|${checksum}\n`);
+    rows.push(`${index + 1}|${EXPECTED_GAZETTE_ISSUES[index]}|${checksum}\n`);
   });
   return crypto.createHash("sha256").update(rows.join(""), "utf8").digest("hex");
 }
@@ -63,20 +72,15 @@ function canonicalBundleSha256(parts) {
 function verifyMultipartSource(sourceManifest) {
   const technical = sourceManifest?.technicalSource;
   if (!technical || typeof technical !== "object") fail(`source manifest is missing technicalSource`);
-  if (technical.acquisitionMethod !== "official-gazette-multipart") {
-    fail(`technicalSource.acquisitionMethod must be official-gazette-multipart`);
-  }
-  if (technical.verificationStatus !== "verified-official-full-source") {
-    fail(`technicalSource is not verified-official-full-source`);
-  }
+  if (technical.acquisitionMethod !== "official-gazette-multipart") fail(`technicalSource.acquisitionMethod must be official-gazette-multipart`);
+  if (technical.verificationStatus !== "verified-official-full-source") fail(`technicalSource is not verified-official-full-source`);
   if (typeof technical.verifiedBy !== "string" || !technical.verifiedBy.trim()) fail(`technicalSource is missing verifiedBy`);
   if (typeof technical.verifiedAt !== "string" || !technical.verifiedAt.trim()) fail(`technicalSource is missing verifiedAt`);
 
   const sourceDir = path.dirname(sourceManifestPath);
-  if (!Array.isArray(technical.parts) || technical.parts.length === 0) fail(`technicalSource.parts is required`);
-  for (let index = 0; index < technical.parts.length; index += 1) {
-    const part = technical.parts[index];
-    if (!part || typeof part !== "object") fail(`technicalSource.parts[${index + 1}] must be an object`);
+  const parts = checkedParts(technical.parts);
+  for (let index = 0; index < parts.length; index += 1) {
+    const part = parts[index];
     const filename = safeLocalFilename(part.localFile, `technicalSource.parts[${index + 1}].localFile`);
     const partFile = path.join(sourceDir, filename);
     if (!fs.existsSync(partFile) || !fs.statSync(partFile).isFile()) fail(`missing official source part: ${partFile}`);
@@ -85,19 +89,15 @@ function verifyMultipartSource(sourceManifest) {
     if (sha256File(partFile) !== declared) fail(`official source part SHA-256 mismatch: ${filename}`);
   }
 
-  const bundleSha = canonicalBundleSha256(technical.parts);
+  const bundleSha = canonicalBundleSha256(parts);
   const declaredBundleSha = normalizeSha(technical.sourceSha256);
-  if (!SHA_RE.test(declaredBundleSha) || declaredBundleSha !== bundleSha) {
-    fail(`technicalSource.sourceSha256 does not match canonical multipart bundle hash`);
-  }
+  if (!SHA_RE.test(declaredBundleSha) || declaredBundleSha !== bundleSha) fail(`technicalSource.sourceSha256 does not match canonical multipart bundle hash`);
 
   const combinedFilename = safeLocalFilename(technical.localFile, "technicalSource.localFile");
   const combinedFile = path.join(sourceDir, combinedFilename);
   if (!fs.existsSync(combinedFile) || !fs.statSync(combinedFile).isFile()) fail(`missing combined technical source PDF: ${combinedFile}`);
   const declaredCombinedSha = normalizeSha(technical.combinedSha256);
-  if (!SHA_RE.test(declaredCombinedSha) || sha256File(combinedFile) !== declaredCombinedSha) {
-    fail(`technicalSource.combinedSha256 does not match combined local PDF`);
-  }
+  if (!SHA_RE.test(declaredCombinedSha) || sha256File(combinedFile) !== declaredCombinedSha) fail(`technicalSource.combinedSha256 does not match combined local PDF`);
 
   return { technical, bundleSha };
 }
@@ -105,24 +105,18 @@ function verifyMultipartSource(sourceManifest) {
 function safeImagePath(value) {
   const normalized = value.replaceAll("\\", "/").replace(/^\.\//, "");
   const segments = normalized.split("/").filter(Boolean);
-  if (normalized.startsWith("/") || /^[a-zA-Z]:/.test(normalized) || segments.length === 0 || segments.some((segment) => segment === "." || segment === "..")) {
-    fail(`unsafe image path: ${value}`);
-  }
+  if (normalized.startsWith("/") || /^[a-zA-Z]:/.test(normalized) || segments.length === 0 || segments.some((segment) => segment === "." || segment === "..")) fail(`unsafe image path: ${value}`);
   const ext = path.extname(segments.at(-1)).toLowerCase();
   if (!IMAGE_EXTENSIONS.has(ext)) fail(`unsupported image type: ${value}`);
   return segments.join("/");
 }
 
 function assertStringArray(value, label) {
-  if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || !item.trim())) {
-    fail(`${label} must be an array of non-empty strings`);
-  }
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || !item.trim())) fail(`${label} must be an array of non-empty strings`);
 }
 
 function assertOptionalString(value, label) {
-  if (value !== undefined && value !== null && typeof value !== "string") {
-    fail(`${label} must be a string when provided`);
-  }
+  if (value !== undefined && value !== null && typeof value !== "string") fail(`${label} must be a string when provided`);
 }
 
 const dataset = readJson(input, "traffic-signs dataset");
