@@ -47,6 +47,11 @@ function clearVersionCache(version: string): void {
   }
 }
 
+export async function hasTrafficSignAssetVersion(version: string): Promise<boolean> {
+  const versionName = safeVersion(version);
+  return exists(`${ASSET_ROOT}/${versionName}`, { baseDir: BaseDirectory.AppData });
+}
+
 export async function installTrafficSignAssetArchive(
   version: string,
   zipBytes: Uint8Array,
