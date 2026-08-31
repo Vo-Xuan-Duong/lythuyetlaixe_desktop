@@ -1,6 +1,6 @@
 # Update strategy
 
-Ứng dụng có hai loại version độc lập và không nên trộn lẫn.
+Application binary và dataset có version độc lập.
 
 ## 1. Application version
 
@@ -12,9 +12,9 @@ Ví dụ:
 1.0.0
 ```
 
-Application version thay đổi khi có thay đổi code/native shell/schema/feature.
+Application version thay đổi khi code/native shell/schema/feature thay đổi.
 
-Version phải được đồng bộ ở:
+Version phải đồng bộ ở:
 
 ```text
 package.json
@@ -22,21 +22,19 @@ src-tauri/tauri.conf.json
 src-tauri/Cargo.toml
 ```
 
-Bản Desktop đầu sử dụng **NSIS installer build local**:
+Kiểm tra local:
+
+```powershell
+pnpm release:check
+```
+
+Desktop dùng NSIS installer build local:
 
 ```powershell
 pnpm release:windows:local
 ```
 
-Không bật binary auto-updater ở giai đoạn đầu. Khi có application version mới, phát hành installer mới và người dùng cài bản mới lên bản cũ.
-
-Lý do:
-
-- giảm surface native trước release đầu;
-- tránh phải quản lý update signature/server riêng trong lúc production dataset còn đang hoàn thiện;
-- dataset vốn đã có cơ chế cập nhật độc lập nên không cần release app chỉ để sửa câu hỏi.
-
-Auto-updater cho binary có thể được bổ sung sau khi desktop 1.0 ổn định.
+Binary auto-updater chưa bật ở giai đoạn đầu. App version mới được phân phối bằng installer mới.
 
 ## 2. Dataset version
 
@@ -47,16 +45,15 @@ Ví dụ:
 2026.01
 ```
 
-Dataset version thay đổi khi nội dung chính thức thay đổi:
+Dataset version thay đổi khi nội dung production thay đổi:
 
-- câu hỏi;
-- đáp án;
-- metadata;
-- explanation đã được xác minh;
-- biển báo / sa hình / image assets;
-- phạm vi hạng GPLX nếu dataset contract thay đổi.
+- câu hỏi/đáp án;
+- metadata/license mapping;
+- explanation đã xác minh;
+- biển báo/sa hình/assets;
+- source/config contract có thay đổi tương thích.
 
-Dataset được phát hành qua endpoint cố định:
+Remote package:
 
 ```text
 https://<host>/lythuyetlaixe/
@@ -65,37 +62,49 @@ https://<host>/lythuyetlaixe/
 └── assets.zip
 ```
 
-Ứng dụng kiểm tra manifest khi bootstrap. Nếu version/checksum mới:
+## 3. Integrity / provenance
+
+Không trộn ba loại hash:
+
+```text
+sourceSha256  = official PDF SHA-256
+contentSha256 = installed questions.json SHA-256
+assetSha256   = installed assets.zip SHA-256
+```
+
+Manifest chứa `sourceSha256` + `sha256` của `questions.json`; optional `assets.sha256` cho archive ảnh.
+
+Bootstrap cross-check provenance manifest ↔ JSON trước runtime import.
+
+## 4. Dataset activation
 
 ```text
 manifest
+   ↓ validate HTTPS/same-origin/version/hash/provenance
+questions.json verify + runtime contract validate
    ↓
-questions.json verify
+assets.zip verify + safe install (nếu có)
    ↓
-assets.zip verify + install AppData
-   ↓
-transaction import SQLite
+SQLite transaction
    ↓
 activate version mới
    ↓
 cleanup asset version cũ
 ```
 
-Nếu update lỗi và máy đã có dataset local hợp lệ thì app tiếp tục dùng version cũ.
+Nếu asset đã cài nhưng SQLite import lỗi, asset version mới được rollback. Nếu máy có dataset local hợp lệ thì app tiếp tục dùng version cũ.
 
-## 3. Version bất biến
+## 5. Version bất biến
 
-Một dataset version đã phát hành là immutable.
-
-Không được:
+Không được sửa payload mà giữ nguyên version:
 
 ```text
 2025.06 checksum A
-        ↓ sửa file nhưng vẫn giữ version
-2025.06 checksum B
+        ↓ sửa payload
+2025.06 checksum B   ← không hợp lệ
 ```
 
-Phải tạo version mới:
+Phải phát hành version mới:
 
 ```text
 2025.06
@@ -103,48 +112,71 @@ Phải tạo version mới:
 2025.07
 ```
 
-Runtime đã bảo vệ trường hợp cùng version nhưng checksum remote thay đổi: app giữ bản local thay vì tự overwrite.
+Runtime so `contentSha256 + assetSha256` cho immutable package identity. `sourceSha256` chỉ là provenance PDF, không dùng thay distribution checksum.
 
-## 4. Database migration
+## 6. Legacy checksum migration
 
-Dataset update không đồng nghĩa schema migration.
+Một số development build cũ từng lưu nhầm `questions.json` checksum vào metadata `sourceSha256`.
 
-Nếu chỉ thay nội dung câu hỏi với contract hiện tại:
+Runtime chỉ migrate khi:
 
-- không đổi migration;
+- local cùng dataset version;
+- `contentSha256` chưa có;
+- giá trị `sourceSha256` cũ khớp chính xác `manifest.sha256`.
+
+Khi đó hash được chuyển sang `contentSha256` và source provenance cũ bị clear. Runtime không tự suy đoán PDF hash.
+
+## 7. Database migration
+
+Dataset content update không đồng nghĩa SQLite schema migration.
+
+Nếu chỉ thay content trong contract hiện tại:
+
 - giữ `user_progress` theo question ID;
 - giữ bookmark;
-- giữ exam history.
+- giữ exam history;
+- không thêm SQL migration.
 
-Nếu application version cần thay schema SQLite thì phải thêm Tauri SQL migration mới và giữ migration cũ trong lịch sử.
+Nếu application version thay schema thì phải thêm migration mới, không sửa migration lịch sử đã phát hành.
 
-## 5. Compatibility
+## 8. Compatibility
 
-ExamConfig phải chỉ resolve trong khoảng thời gian và dataset version tương thích.
+ExamConfig chỉ resolve trong khoảng thời gian/dataset tương thích.
 
-Không dùng một dataset cũ để giả lập quy định thi mới nếu source/format mới chưa được xác minh.
+Không dùng dataset cũ để giả lập quy định thi mới nếu source/format mới chưa được xác minh.
 
-## 6. Release decision matrix
+## 9. Release decision matrix
 
 | Thay đổi | Dataset release | App installer mới |
 | --- | --- | --- |
 | Sửa text/đáp án đã xác minh | Có | Không |
 | Sửa/thêm ảnh | Có | Không |
-| Thêm explanation trong contract hiện tại | Có | Không |
-| Thay ExamConfig bằng data/code mới | Có thể | Có nếu code/config bundle thay đổi |
+| Thêm explanation verified | Có | Không |
 | Thay UI | Không | Có |
 | Thay SQLite schema | Có thể | Có |
 | Thay download/security logic | Không bắt buộc | Có |
-| Sửa bug Tauri/React | Không | Có |
+| Sửa Tauri/React bug | Không | Có |
+| Đổi production dataset host compiled URL | Không | Có |
 
-## 7. Production recommendation
+## 10. Production transport/security
 
-Trước Desktop 1.0:
+Production dataset URL bắt buộc HTTPS và questions/assets phải cùng origin với manifest.
 
-1. hoàn thiện dataset thật;
-2. test first-run/update/offline local;
-3. build NSIS local;
-4. test Windows 10/11;
-5. phát hành installer + dataset endpoint.
+CSP hiện cho generic `https:` vì host chưa chốt. Trước public release, scope `connect-src` về đúng production origin.
 
-Sau Desktop 1.0 mới đánh giá thêm binary auto-update và code signing theo kênh phân phối thực tế.
+Web Fetch hiện cần CORS. Native HTTP plugin có thể được cân nhắc sau khi host cố định; nếu dùng, capability chỉ cấp đúng host.
+
+SHA-256 + HTTPS là trust model bản đầu. Signed manifest có thể bổ sung sau nếu cần chống compromise storage/CDN mạnh hơn.
+
+## 11. Production recommendation
+
+Trước Desktop release candidate:
+
+1. hoàn thiện 600 câu + assets verified;
+2. publish HTTPS package;
+3. test first-run/update/offline/rollback local;
+4. frontend/Rust checks local;
+5. build/test NSIS Windows 10/11;
+6. quyết định code signing theo kênh phân phối.
+
+Sau bản offline ổn định mới đánh giá binary auto-update và cloud sync.
