@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ExamResult, ExamSession } from "../../domain/entities/exam";
 import type { LicenseType } from "../../domain/entities/question";
 import { createExamSession, remainingExamSeconds, scoreExam } from "../../domain/services/examEngine";
@@ -6,6 +6,7 @@ import { EXAM_CONFIGS, resolveExamConfig } from "../../domain/services/examConfi
 import type { DatasetBootstrapStatus } from "../../infrastructure/database/DatasetBootstrap";
 import { getDefaultExamLicense, setDefaultExamLicense } from "../../infrastructure/preferences/AppPreferences";
 import { SqliteExamHistoryRepository } from "../../infrastructure/repositories/SqliteExamHistoryRepository";
+import { SqliteProgressRepository } from "../../infrastructure/repositories/SqliteProgressRepository";
 import { SqliteQuestionRepository } from "../../infrastructure/repositories/SqliteQuestionRepository";
 import { ExamResultReview } from "./ExamResultReview";
 
@@ -15,6 +16,7 @@ interface ExamPageProps {
 
 const questionRepository = new SqliteQuestionRepository();
 const historyRepository = new SqliteExamHistoryRepository();
+const progressRepository = new SqliteProgressRepository();
 
 const SUPPORTED_LICENSES = [...new Set(EXAM_CONFIGS.map((config) => config.licenseType))];
 
@@ -34,6 +36,7 @@ export function ExamPage({ datasetStatus }: ExamPageProps) {
   const [loading, setLoading] = useState(false);
   const [historySaving, setHistorySaving] = useState(false);
   const [error, setError] = useState<string>();
+  const submitInFlight = useRef(false);
 
   const config = useMemo(() => resolveExamConfig(licenseType, new Date()), [licenseType]);
 
@@ -42,28 +45,55 @@ export function ExamPage({ datasetStatus }: ExamPageProps) {
   }, [licenseType]);
 
   const submitExam = useCallback(async () => {
-    if (!session || result) return;
+    if (!session || result || submitInFlight.current) return;
+    submitInFlight.current = true;
 
+    const submittedAt = new Date();
     const submittedSession: ExamSession = {
       ...session,
-      submittedAt: new Date().toISOString(),
+      submittedAt: submittedAt.toISOString(),
     };
     const scored = scoreExam(submittedSession, answers);
     setSession(submittedSession);
     setResult(scored);
     setRemainingSeconds(0);
 
-    if (datasetStatus.state !== "ready") return;
+    if (datasetStatus.state !== "ready") {
+      submitInFlight.current = false;
+      return;
+    }
 
     setHistorySaving(true);
+    const persistenceErrors: string[] = [];
     try {
-      await historyRepository.saveCompleted(submittedSession, scored);
-    } catch (saveError) {
-      setError(
-        `Kết quả đã được chấm nhưng chưa lưu được lịch sử: ${saveError instanceof Error ? saveError.message : String(saveError)}`,
-      );
+      try {
+        await progressRepository.recordAnswers(
+          scored.answers.map((answer) => ({
+            questionId: answer.questionId,
+            correct: answer.correct,
+          })),
+          submittedAt,
+        );
+      } catch (progressError) {
+        persistenceErrors.push(
+          `tiến độ ôn tập: ${progressError instanceof Error ? progressError.message : String(progressError)}`,
+        );
+      }
+
+      try {
+        await historyRepository.saveCompleted(submittedSession, scored);
+      } catch (historyError) {
+        persistenceErrors.push(
+          `lịch sử thi: ${historyError instanceof Error ? historyError.message : String(historyError)}`,
+        );
+      }
+
+      if (persistenceErrors.length > 0) {
+        setError(`Bài đã được chấm nhưng chưa lưu đầy đủ ${persistenceErrors.join("; ")}`);
+      }
     } finally {
       setHistorySaving(false);
+      submitInFlight.current = false;
     }
   }, [answers, datasetStatus.state, result, session]);
 
@@ -119,6 +149,7 @@ export function ExamPage({ datasetStatus }: ExamPageProps) {
     setCurrentIndex(0);
     setRemainingSeconds(0);
     setError(undefined);
+    submitInFlight.current = false;
   };
 
   if (!session) {
@@ -216,7 +247,7 @@ export function ExamPage({ datasetStatus }: ExamPageProps) {
           </div>
           {error && <div className="data-warning" role="status">{error}</div>}
           <button className="primary-button" type="button" disabled={historySaving} onClick={resetExam}>
-            {historySaving ? "Đang lưu lịch sử..." : "Làm đề khác"}
+            {historySaving ? "Đang lưu kết quả..." : "Làm đề khác"}
           </button>
         </section>
 
