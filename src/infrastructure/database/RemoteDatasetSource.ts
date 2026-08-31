@@ -14,7 +14,10 @@ export interface RemoteDatasetManifest {
   validFrom: string;
   stage: "production";
   datasetUrl: string;
+  /** SHA-256 of the exact published questions.json payload. */
   sha256: string;
+  /** SHA-256 provenance of the official source PDF. */
+  sourceSha256: string;
   sizeBytes?: number;
   assets?: RemoteAssetPackage;
 }
@@ -139,12 +142,14 @@ export async function fetchDatasetManifest(url: string): Promise<RemoteDatasetMa
     throw new Error(`Cannot load dataset manifest: HTTP ${response.status}`);
   }
 
-  const contentLength = responseContentLength(response);
-  if (contentLength !== null && contentLength > MAX_MANIFEST_BYTES) {
-    throw new Error("Dataset manifest is unexpectedly large");
+  const manifestBytes = await readResponseBytes(response, MAX_MANIFEST_BYTES, "dataset manifest");
+  let manifest: Partial<RemoteDatasetManifest>;
+  try {
+    manifest = JSON.parse(new TextDecoder().decode(manifestBytes)) as Partial<RemoteDatasetManifest>;
+  } catch (error) {
+    throw new Error(`Dataset manifest is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
   }
 
-  const manifest = (await response.json()) as Partial<RemoteDatasetManifest>;
   if (manifest.dataset !== "VN_GPLX_600") {
     throw new Error(`Unsupported remote dataset: ${manifest.dataset ?? "unknown"}`);
   }
@@ -163,9 +168,13 @@ export async function fetchDatasetManifest(url: string): Promise<RemoteDatasetMa
   if (!manifest.sha256?.trim()) {
     throw new Error("Remote dataset manifest is missing sha256");
   }
+  if (!manifest.sourceSha256?.trim()) {
+    throw new Error("Remote dataset manifest is missing sourceSha256 provenance");
+  }
 
   assertOptionalPositiveInteger(manifest.sizeBytes, "dataset sizeBytes");
   const datasetSha256 = assertSha256(manifest.sha256, "dataset sha256");
+  const sourceSha256 = assertSha256(manifest.sourceSha256, "source PDF sha256");
 
   if (manifest.assets) {
     if (manifest.assets.format !== "zip") {
@@ -194,6 +203,7 @@ export async function fetchDatasetManifest(url: string): Promise<RemoteDatasetMa
   return {
     ...(manifest as RemoteDatasetManifest),
     sha256: datasetSha256,
+    sourceSha256,
     datasetUrl: resolvedDatasetUrl,
     assets: resolvedAssets,
   };
@@ -272,9 +282,11 @@ export async function downloadDataset(manifest: RemoteDatasetManifest): Promise<
   if (dataset.stage !== manifest.stage) {
     throw new Error("Dataset stage does not match remote manifest");
   }
+  if (normalizeSha256(dataset.sourceSha256 ?? "") !== manifest.sourceSha256) {
+    throw new Error("Dataset sourceSha256 provenance does not match remote manifest");
+  }
 
-  // Important: dataset.sourceSha256 is provenance for the official source PDF.
-  // manifest.sha256 is the distribution checksum for questions.json and is
-  // stored separately as contentSha256 by DatasetImporter.
+  // dataset.sourceSha256 is source provenance; manifest.sha256 is the
+  // distribution checksum stored separately as contentSha256 by DatasetImporter.
   return dataset;
 }
