@@ -27,6 +27,15 @@ function byteResponse(
   };
 }
 
+async function digestHex(bytes: Uint8Array): Promise<string> {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  const digest = await crypto.subtle.digest("SHA-256", copy.buffer);
+  return Array.from(new Uint8Array(digest))
+    .map((value) => value.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 describe("RemoteDatasetSource", () => {
   it("resolves relative dataset and asset URLs from the final manifest URL", async () => {
     const manifestPayload = {
@@ -69,6 +78,27 @@ describe("RemoteDatasetSource", () => {
     await expect(
       fetchDatasetManifest("http://data.example.com/dataset-manifest.json"),
     ).rejects.toThrow("must use HTTPS");
+  });
+
+  it("rejects cross-origin payload URLs", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      byteResponse(
+        {
+          dataset: "VN_GPLX_600",
+          version: "2025.06",
+          validFrom: "2025-06-01",
+          stage: "production",
+          datasetUrl: "https://other.example.com/questions.json",
+          sha256: "a".repeat(64),
+          sourceSha256: "c".repeat(64),
+        },
+        "https://data.example.com/dataset-manifest.json",
+      ) as Response,
+    ) as unknown as typeof fetch;
+
+    await expect(
+      fetchDatasetManifest("https://data.example.com/dataset-manifest.json"),
+    ).rejects.toThrow("same origin");
   });
 
   it("rejects malformed manifest checksums", async () => {
@@ -134,10 +164,7 @@ describe("RemoteDatasetSource", () => {
       questions: [],
     };
     const bytes = new TextEncoder().encode(JSON.stringify(dataset));
-    const digest = await crypto.subtle.digest("SHA-256", bytes);
-    const sha256 = Array.from(new Uint8Array(digest))
-      .map((value) => value.toString(16).padStart(2, "0"))
-      .join("");
+    const sha256 = await digestHex(bytes);
 
     globalThis.fetch = vi.fn(async () => ({
       ok: true,
