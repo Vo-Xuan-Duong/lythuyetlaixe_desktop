@@ -2,19 +2,18 @@
 
 Dự án không tự chạy GitHub Actions khi push/PR. Validation và release được thực hiện local trên máy Windows.
 
-## 1. Chuẩn bị endpoint dataset production
+## 1. Chuẩn bị hai endpoint production
 
 Tạo `.env.production` từ `.env.example`:
 
 ```env
-VITE_DATASET_MANIFEST_URL=https://data.example.com/lythuyetlaixe/dataset-manifest.json
+VITE_QUESTIONS_MANIFEST_URL=https://data.example.com/lythuyetlaixe/questions/dataset-manifest.json
+VITE_TRAFFIC_SIGNS_MANIFEST_URL=https://data.example.com/lythuyetlaixe/traffic-signs/manifest.json
 ```
 
-URL này được compile vào frontend. Installer không chứa bộ 600 câu; lần mở app đầu tiên sẽ tải manifest, questions và assets về AppData rồi import SQLite.
+Installer không chứa production 600 câu hoặc catalog biển báo đầy đủ. Mỗi dataset tải/import độc lập vào SQLite/AppData.
 
 ## 2. Kiểm tra local trước release
-
-Chạy theo nhu cầu trên máy phát triển:
 
 ```powershell
 pnpm install
@@ -23,12 +22,17 @@ pnpm build
 cargo check --manifest-path src-tauri/Cargo.toml
 ```
 
-Dataset tooling khi cần:
+Question dataset:
 
 ```powershell
-pnpm dataset:metadata
 pnpm dataset:test
 pnpm dataset:validate
+```
+
+Traffic-sign dataset:
+
+```powershell
+pnpm signs:validate
 ```
 
 ## 3. Build installer NSIS
@@ -37,49 +41,49 @@ pnpm dataset:validate
 pnpm release:windows:local
 ```
 
-Tauri build frontend/Rust release và tạo NSIS setup executable. Với target mặc định của dự án, output nằm dưới:
+Output:
 
 ```text
 src-tauri/target/release/bundle/nsis/
 ```
 
-Bản đầu sử dụng NSIS current-user mặc định của Tauri nên không yêu cầu quyền Administrator và cài ứng dụng vào vùng LocalAppData của người dùng.
-
 ## 4. Versioning
 
-Trước khi release, đồng bộ cùng một version ở:
+Application version phải đồng bộ ở:
 
 - `package.json`
 - `src-tauri/tauri.conf.json`
 - `src-tauri/Cargo.toml`
 
-Quy ước đề xuất:
+Hai dataset có version độc lập với binary và với nhau:
 
 ```text
-0.1.x  development/preview
-0.2.x  beta desktop
-1.0.0  desktop production
+App:           0.1.0
+Questions:     2025.06
+Traffic signs: 2025.01
 ```
-
-Dataset version độc lập app version. Cập nhật câu hỏi/ảnh chỉ cần phát hành dataset version mới trên remote storage; không cần build installer mới nếu application contract không đổi.
 
 ## 5. Release checklist
 
-- `.env.production` trỏ đúng HTTPS endpoint.
-- Dataset manifest có version/checksum đúng.
-- First-run tải dataset thành công.
-- Mất mạng sau lần tải đầu vẫn học/thi được.
-- Ảnh biển báo/sa hình đọc được từ AppData.
-- Update dataset giữ nguyên progress/bookmark/exam history.
-- Learning, Critical, Review, Exam, Statistics, Settings chạy được.
-- Installer cài/gỡ được trên Windows 10/11.
-- Kiểm tra app data sau uninstall/reinstall theo chính sách mong muốn.
+- `.env.production` có đúng hai HTTPS manifest URL.
+- First-run tải/import bộ 600 câu thành công.
+- First-run catalog biển báo tải/import độc lập.
+- SQLite migration v2 tạo `traffic_sign_metadata` và `traffic_signs`.
+- Mất mạng sau first-run vẫn học/thi/tra cứu biển báo được.
+- Question assets đọc từ `$APPDATA/dataset-assets/<version>/`.
+- Traffic-sign assets đọc từ `$APPDATA/traffic-sign-assets/<version>/`.
+- Update questions giữ progress/bookmark/exam history và không xóa traffic signs.
+- Update traffic signs không chạm bộ 600 câu.
+- Runtime Diagnostics kiểm tra riêng cả hai dataset.
+- Installer install/upgrade/uninstall được trên Windows 10/11.
 
-## 6. Không dùng Actions tự động
+## 6. Security trước public release
 
-`.github/workflows/validate.yml` chỉ còn `workflow_dispatch`. Không có trigger push hoặc pull request. Việc kiểm tra mặc định được thực hiện local.
+- R2/custom domain chỉ public read.
+- CORS GET/HEAD phù hợp.
+- Scope CSP `connect-src` về đúng custom domain thay vì generic `https:`.
+- Không nhúng R2 API secret vào app.
 
-## Nguồn Tauri
+## 7. Không dùng Actions tự động
 
-- Windows installer: https://v2.tauri.app/distribute/windows-installer/
-- Tauri config: https://v2.tauri.app/reference/config/
+`.github/workflows/validate.yml` là manual-only. Validation mặc định thực hiện local.
