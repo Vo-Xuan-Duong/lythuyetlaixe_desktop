@@ -11,6 +11,8 @@ import "./styles/dataset-setup.css";
 import "./styles/review-statistics.css";
 import "./styles/settings.css";
 import "./styles/settings-preferences.css";
+import "./styles/traffic-signs.css";
+import "./styles/mobile-navigation.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
