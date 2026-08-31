@@ -32,17 +32,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
-    "publisher": "Vo-Xuan-Duong",
-    "icon": ["icons/icon.ico"],
-    "windows": {
-      "nsis": {
-        "displayLanguageSelector": false
-      }
-    },
-    "android": {
-      "minSdkVersion": 24
-    }
+    "publisher": "Vo-Xuan-Duong"
   },
   "plugins": {
     "sql": {
