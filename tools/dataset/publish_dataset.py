@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import shutil
 import zipfile
 from pathlib import Path, PurePosixPath
@@ -21,6 +22,7 @@ DEFAULT_ASSETS_ROOT = ROOT / "data" / "processed" / "assets"
 DEFAULT_OUTPUT_DIR = ROOT / "dist" / "dataset"
 EXPECTED_COUNT = 600
 ALLOWED_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
+SHA256_RE = re.compile(r"^(?:sha256:)?[0-9a-fA-F]{64}$")
 
 
 def sha256_file(path: Path) -> str:
@@ -29,6 +31,12 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: file.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def normalize_sha256(value: object) -> str:
+    if not isinstance(value, str) or not SHA256_RE.fullmatch(value.strip()):
+        raise ValueError("dataset sourceSha256 must contain the official source PDF SHA-256")
+    return value.strip().lower().removeprefix("sha256:")
 
 
 def normalize_asset_path(value: str) -> str:
@@ -86,12 +94,20 @@ def publish(source: Path, assets_root: Path, output_dir: Path) -> tuple[Path, Pa
     if not dataset.get("validFrom"):
         raise ValueError("dataset validFrom is required")
 
+    source_checksum = normalize_sha256(dataset.get("sourceSha256"))
+    dataset["sourceSha256"] = source_checksum
+
     output_dir.mkdir(parents=True, exist_ok=True)
     dataset_path = output_dir / "questions.json"
     manifest_path = output_dir / "dataset-manifest.json"
     asset_archive_path = output_dir / "assets.zip"
 
-    shutil.copyfile(source, dataset_path)
+    # Write the normalized production payload instead of byte-copying an input
+    # that could contain a prefixed/mixed-case provenance hash.
+    dataset_path.write_text(
+        json.dumps(dataset, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
     dataset_checksum = sha256_file(dataset_path)
     asset_paths = referenced_assets(questions)
 
@@ -103,6 +119,7 @@ def publish(source: Path, assets_root: Path, output_dir: Path) -> tuple[Path, Pa
         "datasetUrl": "questions.json",
         "sha256": dataset_checksum,
         "sizeBytes": dataset_path.stat().st_size,
+        "sourceSha256": source_checksum,
     }
 
     if asset_paths:
