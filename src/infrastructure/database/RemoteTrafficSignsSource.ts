@@ -153,7 +153,8 @@ export async function fetchTrafficSignsManifest(url: string): Promise<RemoteTraf
   if (!manifest.sourceDocument?.trim()) throw new Error("Traffic signs manifest is missing sourceDocument");
   if (!manifest.sourceSha256?.trim()) throw new Error("Traffic signs manifest is missing sourceSha256");
 
-  assertPositiveInteger(manifest.signCount, "traffic signs signCount");
+  const signCount = manifest.signCount;
+  assertPositiveInteger(signCount, "traffic signs signCount");
   assertOptionalPositiveInteger(manifest.sizeBytes, "traffic signs sizeBytes");
   const contentSha256 = assertSha256(manifest.sha256, "traffic signs sha256");
   const sourceSha256 = assertSha256(manifest.sourceSha256, "traffic signs source sha256");
@@ -180,7 +181,7 @@ export async function fetchTrafficSignsManifest(url: string): Promise<RemoteTraf
     version: manifest.version.trim(),
     validFrom: manifest.validFrom.trim(),
     sourceDocument: manifest.sourceDocument.trim(),
-    signCount: manifest.signCount,
+    signCount,
     datasetUrl,
     sha256: contentSha256,
     sourceSha256,
@@ -222,7 +223,19 @@ export async function downloadTrafficSignsDataset(manifest: RemoteTrafficSignsMa
   } catch (error) {
     throw new Error(`traffic-signs.json is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
   }
-  if (dataset.version !== manifest.version) throw new Error("Traffic signs dataset version does not match manifest");
+
+  if (dataset.dataset !== manifest.dataset) {
+    throw new Error("Traffic signs dataset identity does not match manifest");
+  }
+  if (dataset.stage !== manifest.stage) {
+    throw new Error("Traffic signs dataset stage does not match manifest");
+  }
+  if (dataset.version !== manifest.version) {
+    throw new Error("Traffic signs dataset version does not match manifest");
+  }
+  if (dataset.validFrom !== manifest.validFrom) {
+    throw new Error(`Traffic signs validFrom mismatch: manifest=${manifest.validFrom}, dataset=${dataset.validFrom}`);
+  }
   if (!Array.isArray(dataset.signs) || dataset.signs.length !== manifest.signCount) {
     throw new Error(`Traffic signs count mismatch: expected ${manifest.signCount}, found ${Array.isArray(dataset.signs) ? dataset.signs.length : 0}`);
   }
