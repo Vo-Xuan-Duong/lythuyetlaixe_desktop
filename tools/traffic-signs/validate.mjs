@@ -5,6 +5,7 @@ const input = process.argv[2] ?? "data/traffic-signs/processed/traffic-signs.jso
 const assetsRoot = process.argv[3] ?? "data/traffic-signs/processed/assets";
 const GROUPS = new Set(["PROHIBITION", "MANDATORY", "WARNING", "INDICATION", "SUPPLEMENTARY"]);
 const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".svg"]);
+const MAX_SIGN_COUNT = 2_000;
 const VERSION_RE = /^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const CODE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/;
@@ -32,6 +33,12 @@ function assertStringArray(value, label) {
   }
 }
 
+function assertOptionalString(value, label) {
+  if (value !== undefined && value !== null && typeof value !== "string") {
+    fail(`${label} must be a string when provided`);
+  }
+}
+
 if (!fs.existsSync(input)) fail(`missing ${input}`);
 let dataset;
 try {
@@ -47,6 +54,7 @@ if (typeof dataset.validFrom !== "string" || !DATE_RE.test(dataset.validFrom.tri
 if (typeof dataset.sourceDocument !== "string" || !dataset.sourceDocument.trim()) fail(`sourceDocument is required`);
 if (typeof dataset.sourceSha256 !== "string" || !SHA_RE.test(dataset.sourceSha256.replace(/^sha256:/i, ""))) fail(`sourceSha256 must be a SHA-256 hex digest`);
 if (!Array.isArray(dataset.signs) || dataset.signs.length === 0) fail(`signs must contain at least one verified record`);
+if (dataset.signs.length > MAX_SIGN_COUNT) fail(`signs exceeds maximum of ${MAX_SIGN_COUNT} records`);
 
 const codes = new Set();
 let imageCount = 0;
@@ -59,6 +67,9 @@ for (const sign of dataset.signs) {
   if (!GROUPS.has(sign.groupCode)) fail(`${code}: invalid groupCode ${String(sign.groupCode)}`);
   if (typeof sign.meaning !== "string" || !sign.meaning.trim()) fail(`${code}: meaning is required`);
   if (typeof sign.sourceVersion !== "string" || !sign.sourceVersion.trim()) fail(`${code}: sourceVersion is required`);
+  assertOptionalString(sign.recognition, `${code}: recognition`);
+  assertOptionalString(sign.scope, `${code}: scope`);
+  assertOptionalString(sign.notes, `${code}: notes`);
   assertStringArray(sign.exceptions, `${code}: exceptions`);
   assertStringArray(sign.keywords, `${code}: keywords`);
 
