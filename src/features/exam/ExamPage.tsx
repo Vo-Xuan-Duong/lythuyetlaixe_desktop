@@ -6,6 +6,7 @@ import { EXAM_CONFIGS, resolveExamConfig } from "../../domain/services/examConfi
 import type { DatasetBootstrapStatus } from "../../infrastructure/database/DatasetBootstrap";
 import { SqliteExamHistoryRepository } from "../../infrastructure/repositories/SqliteExamHistoryRepository";
 import { SqliteQuestionRepository } from "../../infrastructure/repositories/SqliteQuestionRepository";
+import { ExamResultReview } from "./ExamResultReview";
 
 interface ExamPageProps {
   datasetStatus: DatasetBootstrapStatus;
@@ -213,6 +214,8 @@ export function ExamPage({ datasetStatus }: ExamPageProps) {
             {historySaving ? "Đang lưu lịch sử..." : "Làm đề khác"}
           </button>
         </section>
+
+        <ExamResultReview session={session} result={result} />
       </div>
     );
   }
