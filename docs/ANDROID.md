@@ -16,7 +16,15 @@ Cài đặt:
 - Rust Android targets theo hướng dẫn Tauri;
 - thiết bị thật bật USB debugging hoặc Android Emulator.
 
-Tauri hiện hỗ trợ Android từ SDK 24. `src-tauri/tauri.conf.json` đã khóa:
+Tauri hỗ trợ Android từ SDK 24. Dự án tách cấu hình theo platform:
+
+```text
+src-tauri/tauri.conf.json           # shared
+src-tauri/tauri.windows.conf.json   # NSIS/Windows
+src-tauri/tauri.android.conf.json   # Android
+```
+
+`tauri.android.conf.json` khóa:
 
 ```json
 {
@@ -30,7 +38,7 @@ Tauri hiện hỗ trợ Android từ SDK 24. `src-tauri/tauri.conf.json` đã kh
 
 ## 2. Khởi tạo Android project
 
-Chỉ cần chạy một lần trên máy phát triển sau khi Android toolchain sẵn sàng:
+Chỉ chạy một lần trên máy phát triển sau khi Android toolchain sẵn sàng:
 
 ```powershell
 pnpm tauri:android:init
@@ -54,6 +62,8 @@ Các điểm phải kiểm tra đầu tiên:
 6. Android Back quay đúng màn hình.
 7. Back trong lúc thi hỏi xác nhận trước khi bỏ đề.
 8. App hoạt động offline sau khi dataset đã được cài.
+
+Sau khi app mở, vào **Cài đặt → Local diagnostics → Chạy diagnostics** để kiểm tra nhanh runtime/database/assets/store/endpoint/notification state.
 
 ## 4. Navigation / Android Back
 
@@ -98,7 +108,7 @@ AppData/dataset-assets/<dataset-version>/...
 settings.json
 ```
 
-Được quản lý bằng `@tauri-apps/plugin-store`. Browser preview vẫn dùng `localStorage` fallback.
+Được quản lý bằng `@tauri-apps/plugin-store`. Browser preview vẫn dùng `localStorage` fallback và native app có migration best-effort từ giá trị cũ.
 
 ## 6. Notification ôn tập
 
@@ -107,9 +117,9 @@ Settings có:
 - bật/tắt nhắc ôn;
 - giờ nhắc theo local time;
 - gửi notification thử;
-- xin permission native khi cần.
+- xin permission native khi người dùng chủ động test/save.
 
-Implementation dùng `@tauri-apps/plugin-notification` và stable notification ID.
+Implementation dùng `@tauri-apps/plugin-notification` và stable notification ID. `notification:default` đã bao gồm các command permission cần thiết.
 
 Phần này **bắt buộc kiểm tra trên thiết bị thật** vì behavior schedule/cancel có thể phụ thuộc Android version, battery optimization và implementation của plugin.
 
@@ -122,7 +132,27 @@ Checklist:
 - tắt reminder không còn notification mới;
 - reboot thiết bị và kiểm tra lịch còn hoạt động theo behavior của plugin/platform.
 
-## 7. Build APK debug
+## 7. Runtime diagnostics
+
+Diagnostics chỉ đọc trạng thái và không sửa dữ liệu/không xin notification permission.
+
+Các check hiện có:
+
+- Tauri native runtime;
+- `VITE_DATASET_MANIFEST_URL`;
+- SQLite access;
+- 600 questions;
+- 60 critical questions;
+- 6 categories;
+- mỗi câu local có đúng 1 đáp án đúng;
+- dataset metadata/version;
+- AppData asset directory khi metadata có asset checksum;
+- Tauri Store preference;
+- notification permission state.
+
+Diagnostics giúp khoanh vùng lỗi plugin/storage khi bring-up Android nhưng không thay thế device testing.
+
+## 8. Build APK debug
 
 Sau `android init`:
 
@@ -132,13 +162,13 @@ pnpm tauri:android:build:debug
 
 Dùng để cài trực tiếp/test nội bộ.
 
-## 8. Build APK release
+## 9. Build APK release
 
 ```powershell
 pnpm release:android:apk:local
 ```
 
-Lệnh này chạy `release:check` trước để đảm bảo version trong:
+Lệnh chạy `release:check` trước để đảm bảo version trong:
 
 - `package.json`;
 - `src-tauri/tauri.conf.json`;
@@ -146,7 +176,7 @@ Lệnh này chạy `release:check` trước để đảm bảo version trong:
 
 khớp nhau.
 
-## 9. Build AAB release
+## 10. Build AAB release
 
 ```powershell
 pnpm release:android:aab:local
@@ -154,7 +184,7 @@ pnpm release:android:aab:local
 
 AAB là artifact phù hợp cho Google Play. Cần cấu hình signing/keystore theo quy trình release thực tế trước khi phân phối.
 
-## 10. Release checklist Android
+## 11. Release checklist Android
 
 Không đánh dấu Android production-ready trước khi hoàn thành:
 
@@ -170,4 +200,4 @@ Không đánh dấu Android production-ready trước khi hoàn thành:
 - [ ] APK debug cài được;
 - [ ] APK release/signing kiểm tra được;
 - [ ] AAB release tạo được;
-- [ ] kiểm tra upgrade app không xóa SQLite/progress/assets.
+- [ ] kiểm tra upgrade app không xóa SQLite/progress/assets/preferences.
