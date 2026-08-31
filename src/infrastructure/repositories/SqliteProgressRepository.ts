@@ -4,7 +4,7 @@ import type {
   ProgressRepository,
 } from "../../domain/repositories/ProgressRepository";
 import { recordAnswerProgress } from "../../domain/services/learningProgress";
-import { getDatabase } from "../database/database";
+import { getDatabase, withDatabaseWriteLock } from "../database/database";
 
 interface ProgressRow {
   question_id: number;
@@ -35,38 +35,38 @@ export class SqliteProgressRepository implements ProgressRepository {
   }
 
   async save(progress: QuestionProgress): Promise<void> {
-    const db = await getDatabase();
-    await this.upsertProgress(db, progress);
+    await withDatabaseWriteLock((db) => this.upsertProgress(db, progress));
   }
 
   async recordAnswers(records: ProgressAnswerRecord[], answeredAt = new Date()): Promise<void> {
     if (records.length === 0) return;
 
-    const db = await getDatabase();
-    await db.execute("BEGIN IMMEDIATE TRANSACTION");
-    try {
-      for (const record of records) {
-        const rows = await db.select<ProgressRow[]>(
-          `SELECT question_id, attempt_count, correct_count, wrong_count, mastery,
-                  last_answered_at, next_review_at
-           FROM user_progress
-           WHERE question_id = $1`,
-          [record.questionId],
-        );
-        const previous = rows[0] ? this.mapProgress(rows[0]) : null;
-        const next = recordAnswerProgress({
-          questionId: record.questionId,
-          correct: record.correct,
-          previous,
-          answeredAt,
-        });
-        await this.upsertProgress(db, next);
+    await withDatabaseWriteLock(async (db) => {
+      await db.execute("BEGIN IMMEDIATE TRANSACTION");
+      try {
+        for (const record of records) {
+          const rows = await db.select<ProgressRow[]>(
+            `SELECT question_id, attempt_count, correct_count, wrong_count, mastery,
+                    last_answered_at, next_review_at
+             FROM user_progress
+             WHERE question_id = $1`,
+            [record.questionId],
+          );
+          const previous = rows[0] ? this.mapProgress(rows[0]) : null;
+          const next = recordAnswerProgress({
+            questionId: record.questionId,
+            correct: record.correct,
+            previous,
+            answeredAt,
+          });
+          await this.upsertProgress(db, next);
+        }
+        await db.execute("COMMIT");
+      } catch (error) {
+        await db.execute("ROLLBACK");
+        throw error;
       }
-      await db.execute("COMMIT");
-    } catch (error) {
-      await db.execute("ROLLBACK");
-      throw error;
-    }
+    });
   }
 
   async listWeak(limit = 20): Promise<QuestionProgress[]> {
@@ -94,16 +94,18 @@ export class SqliteProgressRepository implements ProgressRepository {
   }
 
   async addBookmark(questionId: number): Promise<void> {
-    const db = await getDatabase();
-    await db.execute(
-      "INSERT OR IGNORE INTO bookmarks (question_id, created_at) VALUES ($1, $2)",
-      [questionId, new Date().toISOString()],
-    );
+    await withDatabaseWriteLock(async (db) => {
+      await db.execute(
+        "INSERT OR IGNORE INTO bookmarks (question_id, created_at) VALUES ($1, $2)",
+        [questionId, new Date().toISOString()],
+      );
+    });
   }
 
   async removeBookmark(questionId: number): Promise<void> {
-    const db = await getDatabase();
-    await db.execute("DELETE FROM bookmarks WHERE question_id = $1", [questionId]);
+    await withDatabaseWriteLock(async (db) => {
+      await db.execute("DELETE FROM bookmarks WHERE question_id = $1", [questionId]);
+    });
   }
 
   async listBookmarkIds(): Promise<number[]> {
