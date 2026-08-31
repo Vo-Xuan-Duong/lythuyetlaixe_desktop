@@ -39,6 +39,9 @@
       "nsis": {
         "displayLanguageSelector": false
       }
+    },
+    "android": {
+      "minSdkVersion": 24
     }
   },
   "plugins": {
