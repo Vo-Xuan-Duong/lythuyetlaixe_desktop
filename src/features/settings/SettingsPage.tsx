@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import type { LicenseType } from "../../domain/entities/question";
+import type { TrafficSignsLocalState } from "../../domain/entities/trafficSign";
 import type { DatasetBootstrapStatus } from "../../infrastructure/database/DatasetBootstrap";
+import {
+  getLocalTrafficSignsState,
+} from "../../infrastructure/database/TrafficSignsImporter";
+import type { TrafficSignsBootstrapStatus } from "../../infrastructure/database/TrafficSignsBootstrap";
 import {
   getDefaultExamLicense,
   setDefaultExamLicense,
@@ -19,7 +24,9 @@ import { RuntimeDiagnosticsPanel } from "./RuntimeDiagnosticsPanel";
 
 interface SettingsPageProps {
   datasetStatus: DatasetBootstrapStatus;
+  trafficSignsStatus: TrafficSignsBootstrapStatus;
   onCheckDataset: () => void;
+  onCheckTrafficSigns: () => void;
 }
 
 type ResetTarget = "progress" | "bookmarks" | "exams" | "all";
@@ -42,10 +49,32 @@ function shortHash(value: string | null): string {
   return `${value.slice(0, 12)}…${value.slice(-8)}`;
 }
 
-export function SettingsPage({ datasetStatus, onCheckDataset }: SettingsPageProps) {
+function trafficStatusLabel(status: TrafficSignsBootstrapStatus): string {
+  switch (status.state) {
+    case "checking":
+      return "Đang kiểm tra";
+    case "browser":
+      return "Browser preview";
+    case "not-configured":
+      return "Chưa cấu hình";
+    case "error":
+      return "Có lỗi";
+    case "ready":
+      return `v${status.version}`;
+  }
+}
+
+export function SettingsPage({
+  datasetStatus,
+  trafficSignsStatus,
+  onCheckDataset,
+  onCheckTrafficSigns,
+}: SettingsPageProps) {
   const [info, setInfo] = useState<LocalApplicationInfo>();
+  const [trafficInfo, setTrafficInfo] = useState<TrafficSignsLocalState>();
   const [runtime, setRuntime] = useState<AppRuntimeInfo>();
   const [loading, setLoading] = useState(false);
+  const [trafficLoading, setTrafficLoading] = useState(false);
   const [resetting, setResetting] = useState<ResetTarget>();
   const [message, setMessage] = useState<string>();
   const [error, setError] = useState<string>();
@@ -100,6 +129,32 @@ export function SettingsPage({ datasetStatus, onCheckDataset }: SettingsPageProp
     };
   }, [datasetStatus, refreshKey]);
 
+  useEffect(() => {
+    let active = true;
+    if (trafficSignsStatus.state !== "ready") {
+      setTrafficInfo(undefined);
+      return () => {
+        active = false;
+      };
+    }
+
+    setTrafficLoading(true);
+    void getLocalTrafficSignsState()
+      .then((result) => {
+        if (active) setTrafficInfo(result);
+      })
+      .catch((loadError) => {
+        if (active) setError(loadError instanceof Error ? loadError.message : String(loadError));
+      })
+      .finally(() => {
+        if (active) setTrafficLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [trafficSignsStatus]);
+
   const canMutateLocalData = datasetStatus.state === "ready" && resetting === undefined;
 
   const changeDefaultLicense = async (value: LicenseType) => {
@@ -123,7 +178,7 @@ export function SettingsPage({ datasetStatus, onCheckDataset }: SettingsPageProp
       exams: "toàn bộ lịch sử thi",
       all: "toàn bộ tiến độ, bookmark và lịch sử thi",
     };
-    if (!window.confirm(`Xóa ${labels[target]} trên thiết bị này? Bộ 600 câu đã tải sẽ được giữ nguyên.`)) {
+    if (!window.confirm(`Xóa ${labels[target]} trên thiết bị này? Hai dataset production đã tải sẽ được giữ nguyên.`)) {
       return;
     }
 
@@ -150,16 +205,8 @@ export function SettingsPage({ datasetStatus, onCheckDataset }: SettingsPageProp
         <div>
           <span className="eyebrow">Application</span>
           <h1>Cài đặt</h1>
-          <p>Quản lý phiên bản ứng dụng, dataset local, tùy chọn thi và dữ liệu học trên thiết bị.</p>
+          <p>Quản lý ứng dụng, hai dataset độc lập, tùy chọn thi và dữ liệu học trên thiết bị.</p>
         </div>
-        <button
-          className="primary-button"
-          type="button"
-          disabled={loading || resetting !== undefined}
-          onClick={onCheckDataset}
-        >
-          Kiểm tra cập nhật dữ liệu
-        </button>
       </div>
 
       {error && <div className="data-warning" role="status">{error}</div>}
@@ -186,12 +233,18 @@ export function SettingsPage({ datasetStatus, onCheckDataset }: SettingsPageProp
       <section className="settings-section">
         <div className="settings-section-heading">
           <div>
-            <span className="eyebrow">Dataset local</span>
-            <h2>Bộ dữ liệu đang sử dụng</h2>
+            <span className="eyebrow">Dataset 01</span>
+            <h2>Bộ 600 câu</h2>
+            <p>Dữ liệu câu hỏi, đáp án và ảnh phục vụ Learning / Exam / Review.</p>
           </div>
-          <span className={`settings-status ${datasetStatus.state === "ready" ? "ready" : "pending"}`}>
-            {datasetStatus.state === "ready" ? `v${datasetStatus.version}` : "Chưa sẵn sàng"}
-          </span>
+          <div className="settings-dataset-actions">
+            <span className={`settings-status ${datasetStatus.state === "ready" ? "ready" : "pending"}`}>
+              {datasetStatus.state === "ready" ? `v${datasetStatus.version}` : "Chưa sẵn sàng"}
+            </span>
+            <button className="secondary-button" type="button" disabled={loading} onClick={onCheckDataset}>
+              Kiểm tra 600 câu
+            </button>
+          </div>
         </div>
 
         <div className="settings-info-grid" aria-busy={loading}>
@@ -204,19 +257,52 @@ export function SettingsPage({ datasetStatus, onCheckDataset }: SettingsPageProp
         </div>
 
         <dl className="settings-checksum-list">
-          <div>
-            <dt>PDF nguồn SHA-256</dt>
-            <dd title={info?.sourceSha256 ?? undefined}>{shortHash(info?.sourceSha256 ?? null)}</dd>
-          </div>
-          <div>
-            <dt>questions.json SHA-256</dt>
-            <dd title={info?.contentSha256 ?? undefined}>{shortHash(info?.contentSha256 ?? null)}</dd>
-          </div>
-          <div>
-            <dt>assets.zip SHA-256</dt>
-            <dd title={info?.assetSha256 ?? undefined}>{shortHash(info?.assetSha256 ?? null)}</dd>
-          </div>
+          <div><dt>PDF nguồn SHA-256</dt><dd title={info?.sourceSha256 ?? undefined}>{shortHash(info?.sourceSha256 ?? null)}</dd></div>
+          <div><dt>questions.json SHA-256</dt><dd title={info?.contentSha256 ?? undefined}>{shortHash(info?.contentSha256 ?? null)}</dd></div>
+          <div><dt>assets.zip SHA-256</dt><dd title={info?.assetSha256 ?? undefined}>{shortHash(info?.assetSha256 ?? null)}</dd></div>
         </dl>
+      </section>
+
+      <section className="settings-section">
+        <div className="settings-section-heading">
+          <div>
+            <span className="eyebrow">Dataset 02</span>
+            <h2>Catalog biển báo</h2>
+            <p>Catalog từng biển và ảnh riêng; update không làm tải lại hoặc reset bộ 600 câu.</p>
+          </div>
+          <div className="settings-dataset-actions">
+            <span className={`settings-status ${trafficSignsStatus.state === "ready" ? "ready" : "pending"}`}>
+              {trafficStatusLabel(trafficSignsStatus)}
+            </span>
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={trafficLoading || trafficSignsStatus.state === "checking" || trafficSignsStatus.state === "browser"}
+              onClick={onCheckTrafficSigns}
+            >
+              Kiểm tra biển báo
+            </button>
+          </div>
+        </div>
+
+        <div className="settings-info-grid" aria-busy={trafficLoading}>
+          <article><span>Dataset</span><strong>VN_TRAFFIC_SIGNS</strong></article>
+          <article><span>Phiên bản</span><strong>{trafficInfo?.version ?? "—"}</strong></article>
+          <article><span>Ngày hiệu lực</span><strong>{trafficInfo?.validFrom ?? "—"}</strong></article>
+          <article><span>Số biển local</span><strong>{trafficInfo?.signCount ?? 0}</strong></article>
+          <article><span>Nguồn quy chuẩn</span><strong>{trafficInfo?.sourceDocument ?? "—"}</strong></article>
+          <article><span>Nguồn runtime</span><strong>{trafficSignsStatus.state === "ready" ? trafficSignsStatus.source : "—"}</strong></article>
+        </div>
+
+        <dl className="settings-checksum-list">
+          <div><dt>Nguồn biển báo SHA-256</dt><dd title={trafficInfo?.sourceSha256 ?? undefined}>{shortHash(trafficInfo?.sourceSha256 ?? null)}</dd></div>
+          <div><dt>traffic-signs.json SHA-256</dt><dd title={trafficInfo?.contentSha256 ?? undefined}>{shortHash(trafficInfo?.contentSha256 ?? null)}</dd></div>
+          <div><dt>traffic-sign-assets.zip SHA-256</dt><dd title={trafficInfo?.assetSha256 ?? undefined}>{shortHash(trafficInfo?.assetSha256 ?? null)}</dd></div>
+        </dl>
+
+        {trafficSignsStatus.state === "error" && (
+          <div className="data-warning settings-inline-warning" role="status">{trafficSignsStatus.message}</div>
+        )}
       </section>
 
       <section className="settings-section">
@@ -274,7 +360,7 @@ export function SettingsPage({ datasetStatus, onCheckDataset }: SettingsPageProp
             <button className="secondary-button" type="button" disabled={!canMutateLocalData} onClick={() => void reset("exams")}>Xóa</button>
           </div>
           <div className="danger-row">
-            <div><strong>Reset toàn bộ dữ liệu người dùng</strong><span>Giữ nguyên dataset/assets, chỉ xóa dữ liệu học cá nhân trên thiết bị.</span></div>
+            <div><strong>Reset toàn bộ dữ liệu người dùng</strong><span>Giữ nguyên cả hai dataset/assets, chỉ xóa dữ liệu học cá nhân.</span></div>
             <button className="danger-button" type="button" disabled={!canMutateLocalData} onClick={() => void reset("all")}>Reset tất cả</button>
           </div>
         </div>
