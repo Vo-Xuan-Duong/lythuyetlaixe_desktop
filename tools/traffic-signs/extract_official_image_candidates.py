@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import re
 import unicodedata
 from pathlib import Path
@@ -10,7 +9,7 @@ import fitz
 
 from source_provenance import DEFAULT_MANIFEST, inspect_multipart_source
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = DEFAULT_MANIFEST.parents[3]
 CANDIDATES_PATH = ROOT / "data" / "traffic-signs" / "raw" / "official-candidates.json"
 OUTPUT_DIR = ROOT / "data" / "traffic-signs" / "raw" / "image-candidates"
 MAX_ABOVE_CAPTION = 320.0
@@ -50,8 +49,10 @@ def text_blocks(page: fitz.Page) -> list[tuple[fitz.Rect, str]]:
 
 
 def caption_rects(page: fitz.Page, section: str) -> list[fitz.Rect]:
-    marker = fold_text(f"Hình {section}")
-    return [rect for rect, text in text_blocks(page) if marker in fold_text(text)]
+    folded_section = fold_text(section).strip()
+    # Exact section boundary is important: B.3 must not match Hình B.30/B.31.
+    pattern = re.compile(rf"\bHINH\s+{re.escape(folded_section)}(?![0-9A-Z])")
+    return [rect for rect, text in text_blocks(page) if pattern.search(fold_text(text))]
 
 
 def graphic_rects(page: fitz.Page, caption: fitz.Rect) -> list[fitz.Rect]:
@@ -81,6 +82,7 @@ def graphic_rects(page: fitz.Page, caption: fitz.Rect) -> list[fitz.Rect]:
             continue
         if rect.y1 <= bottom and rect.y1 >= top and rect.y0 < caption.y0:
             rects.append(rect)
+
     return rects
 
 
@@ -101,31 +103,33 @@ def safe_name(section: str, index: int) -> str:
 def main() -> int:
     try:
         provenance = inspect_multipart_source(DEFAULT_MANIFEST, require_verified=True)
-        candidates_doc = json.loads(CANDIDATES_PATH.read_text(encoding="utf-8"))
+        candidates_doc = __import__("json").loads(CANDIDATES_PATH.read_text(encoding="utf-8"))
         candidates = candidates_doc.get("candidates")
         if not isinstance(candidates, list) or not candidates:
             raise ValueError("official-candidates.json contains no candidates")
         if str(candidates_doc.get("sourceSha256") or "").lower() != provenance.source_sha256:
-            raise ValueError("official candidates were not extracted from the currently verified multipart source")
+            raise ValueError("official candidates were not extracted from the currently verified technical source")
 
         document = fitz.open(provenance.combined_file)
         extracted = 0
         review_needed = 0
         try:
             OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+            # Remove stale candidate images so metadata and files are one extraction snapshot.
+            for stale in OUTPUT_DIR.glob("*"):
+                if stale.is_file():
+                    stale.unlink()
             for candidate in candidates:
                 if not isinstance(candidate, dict):
                     continue
                 section = str(candidate.get("section") or "").strip()
                 if not section:
                     continue
-                pages = range(
-                    max(1, int(candidate.get("startPage") or 1)),
-                    min(document.page_count, int(candidate.get("endPage") or candidate.get("startPage") or 1)) + 1,
-                )
+                start_page = max(1, int(candidate.get("startPage") or 1))
+                end_page = min(document.page_count, int(candidate.get("endPage") or candidate.get("startPage") or 1))
                 image_candidates: list[dict] = []
                 candidate_index = 0
-                for page_number in pages:
+                for page_number in range(start_page, end_page + 1):
                     page = document[page_number - 1]
                     for caption in caption_rects(page, section):
                         combined = union_rects(graphic_rects(page, caption))
@@ -159,13 +163,15 @@ def main() -> int:
             "sourceSha256": provenance.source_sha256,
             "candidateImageCount": extracted,
             "reviewNeeded": review_needed,
-            "method": "caption-adjacent-verified-government-gazette-render",
+            "method": "exact-caption-adjacent-verified-qcvn-render",
         }
-        CANDIDATES_PATH.write_text(json.dumps(candidates_doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    except (OSError, ValueError, json.JSONDecodeError) as error:
+        CANDIDATES_PATH.write_text(
+            __import__("json").dumps(candidates_doc, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    except (OSError, ValueError, __import__("json").JSONDecodeError) as error:
         raise SystemExit(f"Cannot extract official traffic-sign image candidates: {error}") from error
 
-    print(f"[ok] official parts: {len(provenance.part_files)}")
     print(f"[ok] image candidates: {extracted}")
     print(f"[ok] candidates needing extra crop review: {review_needed}")
     print(f"[ok] output dir: {OUTPUT_DIR}")
