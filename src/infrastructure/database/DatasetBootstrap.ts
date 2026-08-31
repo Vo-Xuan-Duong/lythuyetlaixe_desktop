@@ -12,6 +12,7 @@ import {
   downloadDataset,
   downloadVerifiedBytes,
   fetchDatasetManifest,
+  MAX_ASSET_ARCHIVE_BYTES,
   normalizeSha256,
 } from "./RemoteDatasetSource";
 
@@ -130,6 +131,7 @@ export async function bootstrapDataset(): Promise<DatasetBootstrapStatus> {
         manifest.assets.sizeBytes,
         `asset package ${manifest.version}`,
         180_000,
+        MAX_ASSET_ARCHIVE_BYTES,
       );
       await installAssetArchive(manifest.version, assetBytes, manifest.assets.fileCount);
       pendingAssetVersion = manifest.version;
