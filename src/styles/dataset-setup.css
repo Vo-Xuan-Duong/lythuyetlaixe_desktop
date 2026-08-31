@@ -1,0 +1,116 @@
+.dataset-setup-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: linear-gradient(145deg, #f7f9fd, #edf2fa);
+}
+
+.dataset-setup-card {
+  width: min(760px, 100%);
+  padding: 36px;
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  background: var(--surface);
+  box-shadow: 0 24px 70px rgba(35, 54, 89, .12);
+}
+
+.dataset-setup-card h1 {
+  margin: 8px 0 12px;
+  font-size: clamp(30px, 5vw, 44px);
+  letter-spacing: -.04em;
+}
+
+.dataset-setup-card > p {
+  margin: 0;
+  max-width: 650px;
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.dataset-setup-flow {
+  margin-top: 28px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.dataset-setup-flow > div {
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  display: grid;
+  gap: 8px;
+  background: #fbfcff;
+}
+
+.dataset-setup-flow strong {
+  color: var(--primary);
+  font-size: 12px;
+}
+
+.dataset-setup-flow span {
+  font-weight: 750;
+  line-height: 1.4;
+}
+
+.dataset-setup-progress,
+.dataset-setup-actions {
+  margin-top: 24px;
+}
+
+.dataset-setup-progress {
+  display: grid;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.dataset-setup-progress > i {
+  position: relative;
+  display: block;
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: #e8edf5;
+}
+
+.dataset-setup-progress > i::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 42%;
+  border-radius: inherit;
+  background: var(--primary);
+  animation: dataset-progress 1.25s ease-in-out infinite alternate;
+}
+
+.dataset-setup-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.dataset-setup-actions small {
+  color: var(--muted);
+}
+
+@keyframes dataset-progress {
+  from { transform: translateX(-20%); }
+  to { transform: translateX(155%); }
+}
+
+@media (max-width: 700px) {
+  .dataset-setup-page {
+    padding: 18px;
+  }
+
+  .dataset-setup-card {
+    padding: 24px;
+  }
+
+  .dataset-setup-flow {
+    grid-template-columns: 1fr;
+  }
+}
