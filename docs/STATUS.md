@@ -6,11 +6,13 @@
 
 ## Tóm tắt
 
-Application feature/tooling layer hiện gần hoàn chỉnh. Những blocker còn lại chủ yếu không phải feature code mới mà là:
+Application feature layer và data-tooling architecture hiện ở trạng thái **CODE COMPLETE theo static review**. Không còn blocker application feature lớn đã biết.
+
+Những blocker còn lại là công việc phải dựa trên môi trường/dữ liệu thật:
 
 1. local compile/runtime verification;
-2. chạy và review bộ 600 câu thật;
-3. chạy và review catalog biển báo thật từ nguồn Công báo chính thức;
+2. chạy + review bộ 600 câu CSGT thật;
+3. chạy + review catalog biển báo thật từ 5 phần Công báo;
 4. Cloudflare R2/custom domain + CORS/CSP;
 5. Windows/Android verification.
 
@@ -29,6 +31,7 @@ Application feature/tooling layer hiện gần hoàn chỉnh. Những blocker c�
 | Runtime diagnostics | CODED | hai dataset |
 | FS least privilege | CODED | hai AppData roots |
 | Production CSP foundation | CODED | exact R2 origin còn deployment task |
+| Project/release static preflight | CODED | `project:status`, `release:candidate:check` |
 
 ## Dataset 1 — 600 câu
 
@@ -41,7 +44,7 @@ assets   $APPDATA/dataset-assets/<version>/
 Integrity:
 
 ```text
-sourceSha256  = PDF nguồn chính thức
+sourceSha256  = PDF nguồn CSGT chính thức
 contentSha256 = questions.json
 assetSha256   = assets.zip
 ```
@@ -63,7 +66,7 @@ assetSha256   = assets.zip
 
 ### Tooling
 
-Downloader, extractor, parser, underline resolver, manual answer review, image candidate extraction, manual image gate, review workspace, promotion gate, validator, publisher và status đều **CODED**.
+Downloader, extractor, parser, underline resolver, manual answer review, image candidate extraction, manual image gate, review workspace, promotion gate, validator, immutable versioned publisher và status đều **CODED**.
 
 Còn data work:
 
@@ -87,7 +90,7 @@ assets   $APPDATA/traffic-sign-assets/<version>/
 
 ### Source provenance
 
-Technical source được model thành đúng 5 phần Công báo Chính phủ:
+Technical source = đúng 5 phần Công báo Chính phủ:
 
 ```text
 1359+1360
@@ -97,7 +100,17 @@ Technical source được model thành đúng 5 phần Công báo Chính phủ:
 1367+1368
 ```
 
-`sourceSha256` production = canonical hash của 5 part-hash. `combinedSha256` = hash PDF ghép chỉ phục vụ extraction.
+```text
+partSha256 × 5
+→ canonical bundle sourceSha256 (production identity)
+
+5 parts → merged local PDF
+→ combinedSha256 (extraction/review only)
+```
+
+Traffic-sign root manifest có `sourcePartCount = 5`; publisher tạo field này và runtime reject giá trị khác 5.
+
+### Candidate / review tooling
 
 | Stage | Trạng thái |
 | --- | --- |
@@ -108,14 +121,9 @@ Technical source được model thành đúng 5 phần Công báo Chính phủ:
 | Combined parsing PDF | CODED |
 | Content verification markers | CODED |
 | Exact issue-sequence gate | CODED |
-
-### Candidate / review tooling
-
-| Stage | Trạng thái |
-| --- | --- |
 | Official text candidate extractor | CODED |
 | Variant sign-code parser | CODED |
-| Official image candidate extractor | CODED |
+| Exact caption image candidate extractor | CODED |
 | Manual review JSON generator | CODED |
 | Offline review workspace | CODED |
 | Candidate image gallery | CODED |
@@ -127,11 +135,11 @@ Technical source được model thành đúng 5 phần Công báo Chính phủ:
 | Runtime provenance validation | CODED |
 | Local validator | CODED |
 | Immutable publisher | CODED |
-| `signs:status` multipart/review checkpoints | CODED |
+| Multipart/review status checkpoints | CODED |
 | Production records/images | DATA BLOCKER |
 | E2E first-run/offline/update | LOCAL VERIFY |
 
-Production traffic-sign record hiện phải có source section/pages/reviewer/time. Record có ảnh còn phải có `imageVerified=true` và image provenance từ verified canonical QCVN source bundle.
+Production record phải có `sourceSection`, `sourcePages`, `verifiedBy`, `verifiedAt`. Record có ảnh phải có `imageVerified=true` và image provenance từ cùng verified canonical source bundle, với page/crop/processed asset hợp lệ.
 
 ## Kiến thức biển báo UI
 
@@ -152,7 +160,7 @@ Production traffic-sign record hiện phải có source section/pages/reviewer/t
 | NSIS config/release command | CODED |
 | Release/version docs | CODED |
 | Auto GitHub validation | DISABLED — manual-only |
-| `pnpm install` / lockfile | LOCAL PENDING |
+| `pnpm install` / lockfiles | LOCAL PENDING |
 | Frontend/Rust compile | LOCAL VERIFY |
 | migration v2 runtime | LOCAL VERIFY |
 | two-dataset first-run/offline/update | LOCAL VERIFY |
@@ -182,9 +190,19 @@ Cần local/device verify:
 - khóa CSP về exact R2/custom-domain origin;
 - clean first-run verification.
 
-## Những việc code/static-review còn lại
+## Static preflight
 
-Không còn blocker application feature lớn đã biết. Từ đây thay đổi code nên chủ yếu dựa trên lỗi thực tế từ local compiler/data run/runtime, thay vì thêm feature mới theo suy đoán.
+```powershell
+pnpm project:status
+```
+
+Báo cáo blocker nhưng không fail shell.
+
+```powershell
+pnpm release:candidate:check
+```
+
+Strict static gate kiểm tra lockfiles, hai local published packages/checksums/counts/provenance, production URLs và CSP exact origin. Nó **không thay** build/test/runtime verification.
 
 ## Blocker Desktop release candidate
 
@@ -192,8 +210,10 @@ Không còn blocker application feature lớn đã biết. Từ đây thay đổ
 2. Hoàn thiện 600 câu production.
 3. Hoàn thiện traffic-sign catalog production nếu đưa vào 1.0.
 4. Publish hai package lên R2.
-5. Verify first-run/offline/update/self-heal/rollback độc lập.
-6. Runtime Diagnostics không còn lỗi production chưa giải thích.
-7. Build/test NSIS Windows 10/11.
+5. `.env.production` + exact CSP origin.
+6. `pnpm release:candidate:check` = zero blockers.
+7. Verify first-run/offline/update/self-heal/rollback độc lập.
+8. Runtime Diagnostics không còn lỗi production chưa giải thích.
+9. Build/test NSIS Windows 10/11.
 
 Checklist thao tác: [`LOCAL_HANDOFF.md`](./LOCAL_HANDOFF.md).
