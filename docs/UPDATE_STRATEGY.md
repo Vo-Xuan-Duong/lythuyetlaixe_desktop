@@ -1,20 +1,10 @@
 # Update strategy
 
-Application binary, bộ 600 câu và catalog biển báo có version **độc lập**.
+Application binary, `VN_GPLX_600` and `VN_TRAFFIC_SIGNS` have independent versions.
 
-## 1. Application version
+## Application version
 
-Ví dụ:
-
-```text
-0.1.0
-0.2.0
-1.0.0
-```
-
-Application version thay đổi khi code/native shell/schema/feature thay đổi.
-
-Version phải đồng bộ ở:
+Application version changes with code/native shell/schema/feature changes and must stay synchronized in:
 
 ```text
 package.json
@@ -22,36 +12,31 @@ src-tauri/tauri.conf.json
 src-tauri/Cargo.toml
 ```
 
-Kiểm tra local:
+Local check:
 
 ```powershell
 pnpm release:check
 ```
 
-## 2. Question dataset version
+## Questions version
 
-Dataset:
-
-```text
-VN_GPLX_600
-```
-
-Ví dụ version:
+Example:
 
 ```text
 2025.06
 2026.01
 ```
 
-Thay version khi câu hỏi/đáp án/license/explanation/ảnh production thay đổi.
+Bump when verified question/answer/license/explanation/question-image content changes.
 
-Remote root:
+Remote shape:
 
 ```text
 /questions/
 ├── dataset-manifest.json
-├── questions.json
-└── assets.zip
+└── releases/<version>/
+    ├── questions.json
+    └── assets.zip
 ```
 
 Integrity:
@@ -62,30 +47,18 @@ contentSha256 = questions.json SHA-256
 assetSha256   = assets.zip SHA-256
 ```
 
-## 3. Traffic-sign dataset version
+## Traffic-sign version
 
-Dataset:
+Version is independent from questions. Bump when the verified catalog, official meaning/scope/exceptions/keywords/images or source regulation snapshot changes.
 
-```text
-VN_TRAFFIC_SIGNS
-```
-
-Version độc lập, ví dụ:
-
-```text
-2025.01
-2026.01
-```
-
-Thay version khi catalog từng biển, tên, ý nghĩa, phạm vi, ngoại lệ, keyword hoặc ảnh thay đổi theo nguồn chính thức.
-
-Remote root:
+Remote shape:
 
 ```text
 /traffic-signs/
 ├── manifest.json
-├── traffic-signs.json
-└── traffic-sign-assets.zip
+└── releases/<version>/
+    ├── traffic-signs.json
+    └── traffic-sign-assets.zip
 ```
 
 Integrity:
@@ -96,127 +69,103 @@ contentSha256 = traffic-signs.json SHA-256
 assetSha256   = traffic-sign-assets.zip SHA-256
 ```
 
-## 4. Activation độc lập
+## Immutable release rule
 
-Question flow:
+Never publish changed bytes under an existing dataset version. Local publishers enforce this for their generated `releases/<version>` directories.
 
 ```text
-question manifest
-→ questions.json verify
-→ question assets verify/install
-→ SQLite question transaction
-→ cleanup old question assets
+same version + changed content = invalid
+changed content → create new version
 ```
 
-Traffic-sign flow:
+Root manifests are mutable pointers to immutable release payloads. Upload new release objects before replacing the root manifest.
+
+## Independent activation
 
 ```text
-traffic-sign manifest
-→ traffic-signs.json verify
-→ sign assets verify/install
-→ SQLite traffic_signs transaction
-→ cleanup old sign assets
+Questions:
+manifest → JSON verify → assets verify/install → serialized SQLite import → cleanup old question assets
+
+Traffic signs:
+manifest → JSON verify → assets verify/install → serialized SQLite import → cleanup old sign assets
 ```
 
-Một flow fail không rollback hoặc thay đổi dataset còn lại.
+Both network flows may run concurrently. SQLite mutations share an application-level write queue because both datasets and user data use the same SQLite handle.
 
-## 5. Version bất biến
+Failure in one dataset does not roll back or replace the other dataset.
 
-Không sửa payload mà giữ nguyên version.
+## Same-version self-heal
 
-Ví dụ không hợp lệ:
+A package may be downloaded again without a version bump only when remote version/checksums still match the exact installed immutable package and local state is damaged, for example missing AppData asset directory or missing traffic-sign rows.
 
-```text
-traffic signs 2025.01 checksum A
-       ↓ sửa nội dung
-traffic signs 2025.01 checksum B
-```
+Same version with a changed remote checksum is **not** self-heal; it is an invalid immutable release and runtime keeps the local snapshot.
 
-Phải phát hành version mới.
+## Legacy question checksum migration
 
-Runtime dùng `contentSha256 + assetSha256` làm package identity. `sourceSha256` chỉ là provenance.
+Older development builds could store `questions.json` checksum in `dataset_metadata.sourceSha256`. Migration only occurs when the remote content checksum proves the exact relationship; runtime never guesses official source provenance.
 
-## 6. Question legacy checksum migration
+Traffic-sign dataset has no equivalent legacy migration.
 
-Development build cũ từng lưu nhầm `questions.json` checksum vào `dataset_metadata.sourceSha256`.
+## Database schema versioning
 
-Runtime chỉ migrate khi cùng version, thiếu `contentSha256` và hash cũ khớp chính xác remote manifest content SHA-256.
-
-Traffic-sign dataset là contract mới nên không có legacy migration này.
-
-## 7. Database migration
-
-Dataset content update không đồng nghĩa SQLite schema migration.
-
-Hiện:
+Current schema history:
 
 ```text
-migration v1 → questions/progress/exam
+migration v1 → questions/progress/bookmark/exam
 migration v2 → traffic_sign_metadata/traffic_signs
 ```
 
-Nếu chỉ update content trong contract hiện tại thì không thêm migration.
+Content-only dataset updates do not require SQL migrations. Any schema change must add a new migration; do not rewrite historical migrations after release.
 
-Nếu app schema thay đổi, phải thêm migration mới; không sửa migration lịch sử đã phát hành.
+## User-data isolation
 
-## 8. User data isolation
-
-Question update phải giữ:
+Question updates preserve:
 
 - `user_progress`;
-- bookmark;
+- bookmarks;
 - exam history.
 
-Traffic-sign update không được đụng các bảng user progress/exam.
+Traffic-sign updates never modify those tables. User reset operations also preserve both production datasets and their asset caches.
 
-Reset user data cũng không được xóa production question/sign datasets.
+## Compatibility
 
-## 9. Compatibility
+ExamConfig is tied to compatible question/regulation periods. Never use an old question dataset to simulate a newer official exam format without verified source/config support.
 
-ExamConfig chỉ phụ thuộc question dataset phù hợp với quy định thi.
+Traffic-sign catalog is a learning/reference source and must not infer official question answers.
 
-Traffic-sign catalog là kiến thức/tra cứu độc lập và **không được dùng để tự suy đoán đáp án 600 câu**.
+## Release decision matrix
 
-## 10. Release decision matrix
-
-| Thay đổi | Questions release | Traffic-sign release | App installer mới |
+| Change | Questions release | Sign release | New app binary |
 | --- | --- | --- | --- |
-| Sửa câu hỏi/đáp án verified | Có | Không | Không |
-| Sửa ảnh câu hỏi/sa hình | Có | Không | Không |
-| Thêm explanation verified | Có | Không | Không |
-| Sửa tên/ý nghĩa một biển | Không | Có | Không |
-| Sửa/thêm ảnh biển báo | Không | Có | Không |
-| Quy chuẩn biển báo thay đổi | Không bắt buộc | Có | Có thể nếu contract/UI đổi |
-| Thay UI | Không | Không | Có |
-| Thay SQLite schema | Có thể | Có thể | Có |
-| Thay download/security logic | Không bắt buộc | Không bắt buộc | Có |
-| Đổi compiled manifest host | Không | Không | Có |
+| Verified question/answer change | Yes | No | No |
+| Question/sa hình image change | Yes | No | No |
+| Verified explanation change | Yes | No | No |
+| Sign name/meaning/scope change | No | Yes | No |
+| Sign image change | No | Yes | No |
+| Traffic-sign regulation changes | Usually no | Yes | Maybe if contract/UI changes |
+| UI/business-code change | No | No | Yes |
+| SQLite schema change | Maybe | Maybe | Yes |
+| Download/security logic change | No required data release | No required data release | Yes |
+| Compiled manifest host change | No | No | Yes |
 
-## 11. Production transport/security
+## Production transport/security
 
-Hai manifest URL production bắt buộc HTTPS.
+Both manifests require HTTPS outside localhost development. Payloads must stay same-origin with their respective manifest.
 
-Questions payload cùng origin với question manifest; traffic-sign payload cùng origin với traffic-sign manifest.
+Recommended deployment uses one R2 custom-domain origin with two independent roots. Before public release, restrict CSP `connect-src` to that exact origin.
 
-Khuyến nghị đặt cả hai trên cùng R2 custom domain để CORS/CSP đơn giản:
+SHA-256 + HTTPS/domain control is the initial trust model. Signed manifests remain optional post-1.0 hardening.
 
-```text
-https://data.example.com/lythuyetlaixe/questions/...
-https://data.example.com/lythuyetlaixe/traffic-signs/...
-```
+See [`R2_DEPLOYMENT.md`](./R2_DEPLOYMENT.md) for publication order/layout.
 
-CSP hiện cho generic `https:` vì host chưa chốt. Trước public release phải scope `connect-src` về exact origin.
+## Desktop release recommendation
 
-SHA-256 + HTTPS là trust model bản đầu. Signed manifests có thể bổ sung sau.
+Before release candidate:
 
-## 12. Production recommendation
-
-Trước Desktop release candidate:
-
-1. hoàn thiện 600 câu + question assets verified;
-2. hoàn thiện traffic-sign catalog nếu đưa vào 1.0;
-3. publish hai package lên R2;
-4. test first-run/update/offline/rollback độc lập;
-5. frontend/Rust checks local;
-6. Runtime Diagnostics sạch lỗi production;
-7. build/test NSIS Windows 10/11.
+1. verified questions package published;
+2. verified traffic-sign package published if included in 1.0;
+3. two-manifest first-run/offline/update/self-heal verified locally;
+4. SQLite migration v2 and write-queue behavior verified;
+5. frontend/Vitest/data/Rust checks run locally;
+6. Runtime Diagnostics has no unexplained production failures;
+7. NSIS install/upgrade verified on Windows 10/11.
