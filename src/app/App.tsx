@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { AppShell } from "../components/AppShell";
+import { CriticalPage } from "../features/critical/CriticalPage";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
 import { ExamPage } from "../features/exam/ExamPage";
 import { LearningPage } from "../features/learning/LearningPage";
@@ -22,17 +23,7 @@ export function App() {
       case "learning":
         return <LearningPage datasetStatus={datasetStatus} />;
       case "critical":
-        return (
-          <QuestionCollectionPage
-            datasetStatus={datasetStatus}
-            eyebrow="Luyện tập chuyên biệt"
-            title="60 câu điểm liệt"
-            description="Luyện riêng các tình huống mất an toàn giao thông nghiêm trọng. Trong chế độ học, đáp án vẫn được chấm và lưu progress như các câu khác."
-            criticalOnly
-            emptyTitle="Chưa có câu điểm liệt trong dataset hiện tại."
-            emptyDescription="Kiểm tra lại dataset production và danh sách 60 câu điểm liệt đã được xác minh."
-          />
-        );
+        return <CriticalPage datasetStatus={datasetStatus} />;
       case "exam":
         return <ExamPage datasetStatus={datasetStatus} />;
       case "mistakes":
