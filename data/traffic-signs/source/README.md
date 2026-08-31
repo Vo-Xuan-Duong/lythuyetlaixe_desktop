@@ -2,8 +2,23 @@
 
 Thư mục này dành riêng cho provenance của catalog biển báo, tách hoàn toàn khỏi bộ 600 câu.
 
-Nguồn production phải là tài liệu/quy chuẩn chính thức đang có hiệu lực. Dataset hiện thiết kế cho `QCVN 41:2024/BGTVT`; trước khi điền catalog từng biển cần lưu bản nguồn chính thức và SHA-256 của tài liệu đó.
+Nguồn catalog hiện hướng tới `QCVN 41:2024/BGTVT`, ban hành kèm `Thông tư 51/2024/TT-BGTVT`, hiệu lực từ `01/01/2025`.
 
-Không dùng website/app luyện thi bên thứ ba làm source of truth cho tên, ý nghĩa, phạm vi hoặc ngoại lệ của biển.
+Machine-readable provenance:
 
-Các file source/raw lớn có thể giữ local; chỉ commit metadata/provenance cần thiết.
+```text
+source-manifest.json
+```
+
+Tải file nguồn chính thức và ghi SHA-256 local bằng:
+
+```powershell
+pnpm signs:source:download
+pnpm signs:status
+```
+
+Tool sẽ lưu file được khai báo ở `localFile` trong thư mục này và cập nhật `sourceSha256`. File PDF/raw bị `.gitignore`; chỉ provenance manifest được commit.
+
+`sourceSha256` chỉ chứng minh catalog được đối chiếu với đúng snapshot tài liệu nguồn đã tải. Trước khi dùng cho production vẫn phải mở/kiểm tra tài liệu đúng quy chuẩn dự kiến.
+
+Không dùng website/app luyện thi bên thứ ba làm source of truth cho mã, tên, ý nghĩa, phạm vi hoặc ngoại lệ của biển.
