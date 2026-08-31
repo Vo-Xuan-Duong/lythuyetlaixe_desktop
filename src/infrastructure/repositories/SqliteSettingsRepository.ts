@@ -1,4 +1,4 @@
-import { getDatabase } from "../database/database";
+import { getDatabase, withDatabaseWriteLock } from "../database/database";
 
 interface MetadataRow {
   key: string;
@@ -56,40 +56,44 @@ export class SqliteSettingsRepository {
   }
 
   async resetLearningProgress(): Promise<void> {
-    const db = await getDatabase();
-    await db.execute("DELETE FROM user_progress");
+    await withDatabaseWriteLock(async (db) => {
+      await db.execute("DELETE FROM user_progress");
+    });
   }
 
   async resetBookmarks(): Promise<void> {
-    const db = await getDatabase();
-    await db.execute("DELETE FROM bookmarks");
+    await withDatabaseWriteLock(async (db) => {
+      await db.execute("DELETE FROM bookmarks");
+    });
   }
 
   async resetExamHistory(): Promise<void> {
-    const db = await getDatabase();
-    await db.execute("BEGIN IMMEDIATE TRANSACTION");
-    try {
-      await db.execute("DELETE FROM exam_answers");
-      await db.execute("DELETE FROM exam_sessions");
-      await db.execute("COMMIT");
-    } catch (error) {
-      await db.execute("ROLLBACK");
-      throw error;
-    }
+    await withDatabaseWriteLock(async (db) => {
+      await db.execute("BEGIN IMMEDIATE TRANSACTION");
+      try {
+        await db.execute("DELETE FROM exam_answers");
+        await db.execute("DELETE FROM exam_sessions");
+        await db.execute("COMMIT");
+      } catch (error) {
+        await db.execute("ROLLBACK");
+        throw error;
+      }
+    });
   }
 
   async resetAllUserData(): Promise<void> {
-    const db = await getDatabase();
-    await db.execute("BEGIN IMMEDIATE TRANSACTION");
-    try {
-      await db.execute("DELETE FROM exam_answers");
-      await db.execute("DELETE FROM exam_sessions");
-      await db.execute("DELETE FROM bookmarks");
-      await db.execute("DELETE FROM user_progress");
-      await db.execute("COMMIT");
-    } catch (error) {
-      await db.execute("ROLLBACK");
-      throw error;
-    }
+    await withDatabaseWriteLock(async (db) => {
+      await db.execute("BEGIN IMMEDIATE TRANSACTION");
+      try {
+        await db.execute("DELETE FROM exam_answers");
+        await db.execute("DELETE FROM exam_sessions");
+        await db.execute("DELETE FROM bookmarks");
+        await db.execute("DELETE FROM user_progress");
+        await db.execute("COMMIT");
+      } catch (error) {
+        await db.execute("ROLLBACK");
+        throw error;
+      }
+    });
   }
 }
