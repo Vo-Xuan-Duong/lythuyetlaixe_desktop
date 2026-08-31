@@ -35,6 +35,12 @@ export interface DatasetImportResult {
   questionCount: number;
 }
 
+export interface LocalDatasetState {
+  ready: boolean;
+  version: string | null;
+  questionCount: number;
+}
+
 interface MetadataRow {
   value: string;
 }
@@ -133,6 +139,20 @@ async function metadataValue(db: Database, key: string): Promise<string | null> 
 async function questionCount(db: Database): Promise<number> {
   const rows = await db.select<CountRow[]>("SELECT COUNT(*) AS count FROM questions");
   return rows[0]?.count ?? 0;
+}
+
+export async function getLocalDatasetState(): Promise<LocalDatasetState> {
+  const db = await getDatabase();
+  const [version, count] = await Promise.all([
+    metadataValue(db, "version"),
+    questionCount(db),
+  ]);
+
+  return {
+    ready: Boolean(version) && count === EXPECTED_QUESTION_COUNT,
+    version,
+    questionCount: count,
+  };
 }
 
 async function upsertMetadata(db: Database, key: string, value: string): Promise<void> {
