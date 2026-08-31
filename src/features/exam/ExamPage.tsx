@@ -28,7 +28,8 @@ function formatDuration(seconds: number): string {
 }
 
 export function ExamPage({ datasetStatus }: ExamPageProps) {
-  const [licenseType, setLicenseType] = useState<LicenseType>(() => getDefaultExamLicense());
+  const [licenseType, setLicenseType] = useState<LicenseType>("B");
+  const [preferenceLoaded, setPreferenceLoaded] = useState(false);
   const [session, setSession] = useState<ExamSession | null>(null);
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -42,8 +43,25 @@ export function ExamPage({ datasetStatus }: ExamPageProps) {
   const config = useMemo(() => resolveExamConfig(licenseType, new Date()), [licenseType]);
 
   useEffect(() => {
-    setDefaultExamLicense(licenseType);
-  }, [licenseType]);
+    let active = true;
+    void getDefaultExamLicense()
+      .then((value) => {
+        if (!active) return;
+        setLicenseType(value);
+      })
+      .finally(() => {
+        if (active) setPreferenceLoaded(true);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!preferenceLoaded) return;
+    void setDefaultExamLicense(licenseType);
+  }, [licenseType, preferenceLoaded]);
 
   const submitExam = useCallback(async () => {
     if (!session || result || submitInFlight.current) return;
