@@ -2,8 +2,9 @@
 """Promote a fully verified dataset candidate to data/processed/questions.json.
 
 Promotion is intentionally strict. It refuses candidates with parser warnings,
-unresolved questions, null answers, or anything other than exactly one correct
-answer per question. The Node production validator remains the final release gate.
+unresolved answers/images, null answers, or anything other than exactly one
+correct answer per question. The Node production validator remains the final
+release gate.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_INPUT = ROOT / "data" / "raw" / "questions.reviewed.json"
+DEFAULT_INPUT = ROOT / "data" / "raw" / "questions.images-reviewed.json"
 DEFAULT_OUTPUT = ROOT / "data" / "processed" / "questions.json"
 
 
@@ -33,6 +34,16 @@ def promotion_errors(dataset: dict[str, Any]) -> list[str]:
     if global_warnings:
         errors.append(f"global parser warnings remain: {len(global_warnings)}")
 
+    image_verification = dataset.get("imageVerification")
+    if not isinstance(image_verification, dict):
+        errors.append("image verification stage has not been applied")
+    else:
+        unresolved_images = image_verification.get("unresolved")
+        if not isinstance(unresolved_images, int):
+            errors.append("image verification unresolved count is missing")
+        elif unresolved_images != 0:
+            errors.append(f"image verification still has {unresolved_images} unresolved questions")
+
     ids: set[int] = set()
     for question in questions:
         question_id = question.get("id")
@@ -45,7 +56,13 @@ def promotion_errors(dataset: dict[str, Any]) -> list[str]:
         ids.add(question_id)
 
         if question.get("needsVerification") is True:
-            errors.append(f"{prefix}: still needs verification")
+            errors.append(f"{prefix}: answer still needs verification")
+
+        image_needs_verification = question.get("imageNeedsVerification")
+        if not isinstance(image_needs_verification, bool):
+            errors.append(f"{prefix}: image verification status is missing")
+        elif image_needs_verification:
+            errors.append(f"{prefix}: image still needs verification")
 
         warnings = question.get("parserWarnings") or []
         if warnings:
@@ -81,7 +98,8 @@ def promote(dataset: dict[str, Any]) -> dict[str, Any]:
     result["promotion"] = {
         "method": "verified-dataset-pipeline",
         "questionCount": len(result["questions"]),
-        "unresolved": 0,
+        "unresolvedAnswers": 0,
+        "unresolvedImages": 0,
     }
     return result
 
@@ -101,7 +119,7 @@ def main() -> int:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"[ok] production candidate promoted: {args.output}")
-    print("[next] run pnpm dataset:validate")
+    print("[next] run pnpm dataset:validate locally when you are ready")
     return 0
 
 
