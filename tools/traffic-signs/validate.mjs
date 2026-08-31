@@ -10,7 +10,7 @@ const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".svg"]);
 const MAX_SIGN_COUNT = 2_000;
 const VERSION_RE = /^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const CODE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/;
+const CODE_RE = /^[A-Za-z0-9][A-Za-z0-9.,_-]{0,31}$/;
 const SHA_RE = /^[a-f0-9]{64}$/i;
 
 function fail(message) {
@@ -35,6 +35,71 @@ function sha256File(file) {
   const digest = crypto.createHash("sha256");
   digest.update(fs.readFileSync(file));
   return digest.digest("hex");
+}
+
+function safeLocalFilename(value, label) {
+  if (typeof value !== "string" || !value.trim()) fail(`${label} is required`);
+  const filename = value.trim();
+  if (path.basename(filename) !== filename || filename === "." || filename === "..") {
+    fail(`${label} must be a plain filename`);
+  }
+  return filename;
+}
+
+function canonicalBundleSha256(parts) {
+  if (!Array.isArray(parts) || parts.length === 0) fail(`technicalSource.parts is required`);
+  const rows = [];
+  parts.forEach((part, index) => {
+    if (!part || typeof part !== "object") fail(`technicalSource.parts[${index + 1}] must be an object`);
+    const issue = typeof part.issue === "string" ? part.issue.trim() : "";
+    const checksum = normalizeSha(part.sourceSha256);
+    if (!issue) fail(`technicalSource.parts[${index + 1}].issue is required`);
+    if (!SHA_RE.test(checksum)) fail(`technicalSource.parts[${index + 1}].sourceSha256 is invalid`);
+    rows.push(`${index + 1}|${issue}|${checksum}\n`);
+  });
+  return crypto.createHash("sha256").update(rows.join(""), "utf8").digest("hex");
+}
+
+function verifyMultipartSource(sourceManifest) {
+  const technical = sourceManifest?.technicalSource;
+  if (!technical || typeof technical !== "object") fail(`source manifest is missing technicalSource`);
+  if (technical.acquisitionMethod !== "official-gazette-multipart") {
+    fail(`technicalSource.acquisitionMethod must be official-gazette-multipart`);
+  }
+  if (technical.verificationStatus !== "verified-official-full-source") {
+    fail(`technicalSource is not verified-official-full-source`);
+  }
+  if (typeof technical.verifiedBy !== "string" || !technical.verifiedBy.trim()) fail(`technicalSource is missing verifiedBy`);
+  if (typeof technical.verifiedAt !== "string" || !technical.verifiedAt.trim()) fail(`technicalSource is missing verifiedAt`);
+
+  const sourceDir = path.dirname(sourceManifestPath);
+  if (!Array.isArray(technical.parts) || technical.parts.length === 0) fail(`technicalSource.parts is required`);
+  for (let index = 0; index < technical.parts.length; index += 1) {
+    const part = technical.parts[index];
+    if (!part || typeof part !== "object") fail(`technicalSource.parts[${index + 1}] must be an object`);
+    const filename = safeLocalFilename(part.localFile, `technicalSource.parts[${index + 1}].localFile`);
+    const partFile = path.join(sourceDir, filename);
+    if (!fs.existsSync(partFile) || !fs.statSync(partFile).isFile()) fail(`missing official source part: ${partFile}`);
+    const declared = normalizeSha(part.sourceSha256);
+    if (!SHA_RE.test(declared)) fail(`invalid SHA-256 for official source part: ${filename}`);
+    if (sha256File(partFile) !== declared) fail(`official source part SHA-256 mismatch: ${filename}`);
+  }
+
+  const bundleSha = canonicalBundleSha256(technical.parts);
+  const declaredBundleSha = normalizeSha(technical.sourceSha256);
+  if (!SHA_RE.test(declaredBundleSha) || declaredBundleSha !== bundleSha) {
+    fail(`technicalSource.sourceSha256 does not match canonical multipart bundle hash`);
+  }
+
+  const combinedFilename = safeLocalFilename(technical.localFile, "technicalSource.localFile");
+  const combinedFile = path.join(sourceDir, combinedFilename);
+  if (!fs.existsSync(combinedFile) || !fs.statSync(combinedFile).isFile()) fail(`missing combined technical source PDF: ${combinedFile}`);
+  const declaredCombinedSha = normalizeSha(technical.combinedSha256);
+  if (!SHA_RE.test(declaredCombinedSha) || sha256File(combinedFile) !== declaredCombinedSha) {
+    fail(`technicalSource.combinedSha256 does not match combined local PDF`);
+  }
+
+  return { technical, bundleSha };
 }
 
 function safeImagePath(value) {
@@ -62,30 +127,7 @@ function assertOptionalString(value, label) {
 
 const dataset = readJson(input, "traffic-signs dataset");
 const sourceManifest = readJson(sourceManifestPath, "traffic-sign source manifest");
-const technical = sourceManifest?.technicalSource;
-if (!technical || typeof technical !== "object") fail(`source manifest is missing technicalSource`);
-if (technical.verificationStatus !== "verified-official-full-source") {
-  fail(`technicalSource is not verified-official-full-source`);
-}
-if (typeof technical.verifiedBy !== "string" || !technical.verifiedBy.trim()) {
-  fail(`technicalSource is missing verifiedBy`);
-}
-if (typeof technical.verifiedAt !== "string" || !technical.verifiedAt.trim()) {
-  fail(`technicalSource is missing verifiedAt`);
-}
-const technicalSha = normalizeSha(technical.sourceSha256);
-if (!SHA_RE.test(technicalSha)) fail(`technicalSource.sourceSha256 must be a SHA-256 hex digest`);
-if (typeof technical.localFile !== "string" || path.basename(technical.localFile) !== technical.localFile) {
-  fail(`technicalSource.localFile must be a plain filename`);
-}
-const technicalFile = path.join(path.dirname(sourceManifestPath), technical.localFile);
-if (!fs.existsSync(technicalFile) || !fs.statSync(technicalFile).isFile()) {
-  fail(`verified technical source file is missing: ${technicalFile}`);
-}
-const actualTechnicalSha = sha256File(technicalFile);
-if (actualTechnicalSha !== technicalSha) {
-  fail(`technicalSource SHA-256 does not match local file`);
-}
+const { technical, bundleSha } = verifyMultipartSource(sourceManifest);
 
 if (dataset.dataset !== "VN_TRAFFIC_SIGNS") fail(`dataset must be VN_TRAFFIC_SIGNS`);
 if (dataset.stage !== "production") fail(`stage must be production`);
@@ -95,7 +137,7 @@ if (typeof dataset.sourceDocument !== "string" || !dataset.sourceDocument.trim()
 if (dataset.sourceDocument.trim() !== sourceManifest.sourceDocument) fail(`sourceDocument does not match verified source manifest`);
 const datasetSourceSha = normalizeSha(dataset.sourceSha256);
 if (!SHA_RE.test(datasetSourceSha)) fail(`sourceSha256 must be a SHA-256 hex digest`);
-if (datasetSourceSha !== technicalSha) fail(`sourceSha256 does not match verified technicalSource`);
+if (datasetSourceSha !== bundleSha) fail(`sourceSha256 does not match verified canonical multipart bundle`);
 if (!Array.isArray(dataset.signs) || dataset.signs.length === 0) fail(`signs must contain at least one verified record`);
 if (dataset.signs.length > MAX_SIGN_COUNT) fail(`signs exceeds maximum of ${MAX_SIGN_COUNT} records`);
 
@@ -122,6 +164,7 @@ for (const sign of dataset.signs) {
     const relative = safeImagePath(sign.image);
     const absolute = path.join(assetsRoot, ...relative.split("/"));
     if (!fs.existsSync(absolute) || !fs.statSync(absolute).isFile()) fail(`${code}: missing image ${relative}`);
+    if (sign.imageVerified !== true) fail(`${code}: image is present but imageVerified is not true`);
     imageCount += 1;
   }
 }
@@ -129,7 +172,8 @@ for (const sign of dataset.signs) {
 console.log(`traffic-signs: VALID`);
 console.log(`version: ${dataset.version}`);
 console.log(`source: ${dataset.sourceDocument}`);
-console.log(`source sha256: ${technicalSha}`);
+console.log(`source bundle sha256: ${bundleSha}`);
+console.log(`source parts: ${technical.parts.length}`);
 console.log(`source reviewer: ${technical.verifiedBy}`);
 console.log(`signs: ${dataset.signs.length}`);
 console.log(`images: ${imageCount}`);
