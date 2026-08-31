@@ -10,6 +10,7 @@ import "./styles/exam-review.css";
 import "./styles/dataset-setup.css";
 import "./styles/review-statistics.css";
 import "./styles/settings.css";
+import "./styles/settings-preferences.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
