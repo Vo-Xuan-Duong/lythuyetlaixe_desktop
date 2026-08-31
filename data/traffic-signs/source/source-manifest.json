@@ -9,21 +9,60 @@
     "localFile": "thong-tu-51-2024-tt-bgtvt.pdf",
     "sourceSha256": null,
     "verificationStatus": "pending-local-download-and-hash",
-    "notes": "Văn bản ban hành chính thức. File PDF này xác nhận việc ban hành QCVN 41:2024/BGTVT nhưng không được dùng làm provenance nội dung cho từng biển nếu không chứa toàn bộ quy chuẩn/phụ lục."
+    "notes": "Văn bản ban hành chính thức trên CSDL VBPL. Dùng để xác nhận căn cứ pháp lý; provenance nội dung từng biển dùng technicalSource multipart từ Công báo Chính phủ."
   },
   "technicalSource": {
-    "officialUrl": null,
+    "acquisitionMethod": "official-gazette-multipart",
+    "registryUrl": "https://congbao.chinhphu.vn/van-ban/thong-tu-so-51-2024-tt-bgtvt-43387/53152.htm",
     "localFile": "qcvn-41-2024-bgvt-full.pdf",
+    "combinedSha256": null,
     "sourceSha256": null,
-    "verificationStatus": "pending-official-full-source",
+    "verificationStatus": "pending-official-parts-download",
     "requiredForProduction": true,
-    "notes": "Cần bản đầy đủ QCVN 41:2024/BGTVT có các phần/phụ lục kỹ thuật về từng biển. sourceSha256 của production traffic-signs.json phải là SHA-256 của file kỹ thuật đầy đủ này, không phải PDF Thông tư một trang."
+    "parts": [
+      {
+        "issue": "1359+1360",
+        "publishedDate": "2024-12-19",
+        "fileName": "2024_1359 + 1360_51-2024-TT-BGTVT.pdf",
+        "localFile": "qcvn-41-part-01-1359-1360.pdf",
+        "sourceSha256": null
+      },
+      {
+        "issue": "1361+1362",
+        "publishedDate": "2024-12-19",
+        "fileName": "2024_1361 + 1362_51-2024-TT-BGTVT.pdf",
+        "localFile": "qcvn-41-part-02-1361-1362.pdf",
+        "sourceSha256": null
+      },
+      {
+        "issue": "1363+1364",
+        "publishedDate": "2024-12-20",
+        "fileName": "2024_1363 + 1364_51-2024-TT-BGTVT.pdf",
+        "localFile": "qcvn-41-part-03-1363-1364.pdf",
+        "sourceSha256": null
+      },
+      {
+        "issue": "1365+1366",
+        "publishedDate": "2024-12-20",
+        "fileName": "2024_1365 + 1366_51-2024-TT-BGTVT.pdf",
+        "localFile": "qcvn-41-part-04-1365-1366.pdf",
+        "sourceSha256": null
+      },
+      {
+        "issue": "1367+1368",
+        "publishedDate": "2024-12-20",
+        "fileName": "2024_1367 + 1368_51-2024-TT-BGTVT.pdf",
+        "localFile": "qcvn-41-part-05-1367-1368.pdf",
+        "sourceSha256": null
+      }
+    ],
+    "notes": "Trang Công báo Chính phủ liệt kê QCVN 41:2024/BGTVT trong 5 số Công báo liên tiếp. Tool tải đúng 5 PDF từ registry, hash từng part và ghép local để parser dùng. sourceSha256 production là canonical bundle hash của 5 part SHA-256, không phải hash PDF Thông tư một trang."
   },
   "candidateReference": {
     "url": "https://files.thuvienphapluat.vn/uploads/DOC2HTM/TC_921296.htm",
     "role": "candidate-extraction-only",
     "productionSource": false,
-    "notes": "Có thể dùng để tạo candidate/review workspace nhằm giảm nhập liệu, nhưng không được tự động promote thành production source of truth."
+    "notes": "Chỉ dùng làm typing aid/candidate khi cần. Production catalog bắt buộc đối chiếu technicalSource Công báo Chính phủ đã verify."
   },
-  "notes": "Production catalog chỉ được publish sau khi technicalSource đã được xác minh và mọi record/ảnh cần thiết đã được đối chiếu với nguồn kỹ thuật đầy đủ."
+  "notes": "Production catalog chỉ publish sau khi đủ 5 part Công báo chính thức, bundle provenance được verify và mọi record/ảnh production đã qua manual review."
 }
