@@ -5,12 +5,13 @@ import { ExamPage } from "../features/exam/ExamPage";
 import { LearningPage } from "../features/learning/LearningPage";
 import { QuestionCollectionPage } from "../features/learning/QuestionCollectionPage";
 import { FeaturePlaceholder } from "../features/placeholder/FeaturePlaceholder";
+import { DatasetSetupPage } from "../features/setup/DatasetSetupPage";
 import type { AppSection } from "./navigation";
 import { useDatasetBootstrap } from "./useDatasetBootstrap";
 
 export function App() {
   const [section, setSection] = useState<AppSection>("dashboard");
-  const datasetStatus = useDatasetBootstrap();
+  const { status: datasetStatus, retry: retryDataset } = useDatasetBootstrap();
 
   const content = useMemo(() => {
     switch (section) {
@@ -74,6 +75,10 @@ export function App() {
         );
     }
   }, [datasetStatus, section]);
+
+  if (datasetStatus.state === "checking" || datasetStatus.state === "error") {
+    return <DatasetSetupPage status={datasetStatus} onRetry={retryDataset} />;
+  }
 
   return (
     <AppShell activeSection={section} onNavigate={setSection}>

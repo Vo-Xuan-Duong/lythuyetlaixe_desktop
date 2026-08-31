@@ -35,6 +35,13 @@ export interface DatasetImportResult {
   questionCount: number;
 }
 
+export interface LocalDatasetState {
+  ready: boolean;
+  version: string | null;
+  sourceSha256: string | null;
+  questionCount: number;
+}
+
 interface MetadataRow {
   value: string;
 }
@@ -135,6 +142,22 @@ async function questionCount(db: Database): Promise<number> {
   return rows[0]?.count ?? 0;
 }
 
+export async function getLocalDatasetState(): Promise<LocalDatasetState> {
+  const db = await getDatabase();
+  const [version, sourceSha256, count] = await Promise.all([
+    metadataValue(db, "version"),
+    metadataValue(db, "sourceSha256"),
+    questionCount(db),
+  ]);
+
+  return {
+    ready: Boolean(version) && count === EXPECTED_QUESTION_COUNT,
+    version,
+    sourceSha256: sourceSha256 || null,
+    questionCount: count,
+  };
+}
+
 async function upsertMetadata(db: Database, key: string, value: string): Promise<void> {
   await db.execute(
     `INSERT INTO dataset_metadata (key, value)
@@ -211,12 +234,18 @@ export class DatasetImporter {
     validateDatasetForImport(dataset);
     const db = await getDatabase();
 
-    const [currentVersion, currentCount] = await Promise.all([
+    const [currentVersion, currentSha256, currentCount] = await Promise.all([
       metadataValue(db, "version"),
+      metadataValue(db, "sourceSha256"),
       questionCount(db),
     ]);
 
-    if (!options.force && currentVersion === dataset.version && currentCount === EXPECTED_QUESTION_COUNT) {
+    if (
+      !options.force &&
+      currentVersion === dataset.version &&
+      currentCount === EXPECTED_QUESTION_COUNT &&
+      (!dataset.sourceSha256 || currentSha256 === dataset.sourceSha256)
+    ) {
       return {
         status: "up-to-date",
         version: dataset.version,
