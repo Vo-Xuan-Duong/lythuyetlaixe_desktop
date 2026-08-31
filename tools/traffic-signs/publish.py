@@ -1,15 +1,16 @@
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import re
-import sys
 import zipfile
 from pathlib import Path
 
-INPUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("data/traffic-signs/processed/traffic-signs.json")
-ASSETS_ROOT = Path(sys.argv[2]) if len(sys.argv) > 2 else Path("data/traffic-signs/processed/assets")
-OUTPUT = Path(sys.argv[3]) if len(sys.argv) > 3 else Path("dist/traffic-signs")
+ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_INPUT = ROOT / "data" / "traffic-signs" / "processed" / "traffic-signs.json"
+DEFAULT_ASSETS_ROOT = ROOT / "data" / "traffic-signs" / "processed" / "assets"
+DEFAULT_OUTPUT = ROOT / "dist" / "traffic-signs"
 VERSION_RE = re.compile(r"^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$")
 SHA256_RE = re.compile(r"^(?:sha256:)?[0-9a-fA-F]{64}$")
 ALLOWED_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".svg"}
@@ -23,8 +24,8 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def load_dataset() -> dict:
-    with INPUT.open("r", encoding="utf-8") as handle:
+def load_dataset(source: Path) -> dict:
+    with source.open("r", encoding="utf-8") as handle:
         return json.load(handle)
 
 
@@ -67,10 +68,10 @@ def referenced_assets(dataset: dict) -> list[str]:
     return sorted(paths)
 
 
-def build_assets_zip(paths: list[str], destination: Path) -> None:
+def build_assets_zip(paths: list[str], assets_root: Path, destination: Path) -> None:
     with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
         for relative in paths:
-            source = ASSETS_ROOT.joinpath(*relative.split("/"))
+            source = assets_root.joinpath(*relative.split("/"))
             if not source.is_file():
                 raise FileNotFoundError(f"missing traffic sign asset: {source}")
             archive.write(source, arcname=relative)
@@ -86,11 +87,11 @@ def write_immutable_payload(path: Path, content: bytes, label: str) -> None:
     path.write_bytes(content)
 
 
-def main() -> None:
-    if not INPUT.is_file():
-        raise FileNotFoundError(f"missing traffic signs dataset: {INPUT}")
+def publish(source: Path, assets_root: Path, output_dir: Path) -> tuple[Path, Path, Path | None]:
+    if not source.is_file():
+        raise FileNotFoundError(f"missing traffic signs dataset: {source}")
 
-    dataset = load_dataset()
+    dataset = load_dataset(source)
     if dataset.get("dataset") != "VN_TRAFFIC_SIGNS" or dataset.get("stage") != "production":
         raise ValueError("traffic-signs.json must be a production VN_TRAFFIC_SIGNS dataset")
 
@@ -108,8 +109,8 @@ def main() -> None:
     dataset["version"] = version
     dataset["sourceSha256"] = source_sha256
 
-    OUTPUT.mkdir(parents=True, exist_ok=True)
-    release_dir = OUTPUT / "releases" / version
+    output_dir.mkdir(parents=True, exist_ok=True)
+    release_dir = output_dir / "releases" / version
     release_dir.mkdir(parents=True, exist_ok=True)
 
     output_dataset = release_dir / "traffic-signs.json"
@@ -118,14 +119,16 @@ def main() -> None:
 
     asset_paths = referenced_assets(dataset)
     archive_path = release_dir / "traffic-sign-assets.zip"
+    published_archive: Path | None = None
     if asset_paths:
         temporary_archive = release_dir / ".traffic-sign-assets.zip.tmp"
         if temporary_archive.exists():
             temporary_archive.unlink()
-        build_assets_zip(asset_paths, temporary_archive)
+        build_assets_zip(asset_paths, assets_root, temporary_archive)
         archive_bytes = temporary_archive.read_bytes()
         temporary_archive.unlink()
         write_immutable_payload(archive_path, archive_bytes, "traffic-sign-assets.zip")
+        published_archive = archive_path
     elif archive_path.exists():
         raise ValueError(
             "traffic-sign-assets.zip already exists for this version but current dataset references no assets; bump traffic-sign dataset version"
@@ -144,26 +147,47 @@ def main() -> None:
         "sizeBytes": output_dataset.stat().st_size,
     }
 
-    if asset_paths:
+    if published_archive is not None:
         manifest["assets"] = {
             "url": f"releases/{version}/traffic-sign-assets.zip",
             "format": "zip",
-            "sha256": sha256(archive_path),
-            "sizeBytes": archive_path.stat().st_size,
+            "sha256": sha256(published_archive),
+            "sizeBytes": published_archive.stat().st_size,
             "fileCount": len(asset_paths),
         }
 
-    manifest_path = OUTPUT / "manifest.json"
+    manifest_path = output_dir / "manifest.json"
     with manifest_path.open("w", encoding="utf-8", newline="\n") as handle:
         json.dump(manifest, handle, ensure_ascii=False, indent=2)
         handle.write("\n")
 
-    print(f"Published traffic signs dataset {version} ({len(signs)} signs)")
-    print(f"  {output_dataset}")
-    if asset_paths:
-        print(f"  {archive_path} ({len(asset_paths)} files)")
+    return output_dataset, manifest_path, published_archive
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Publish the verified traffic-sign catalog")
+    parser.add_argument("--input", type=Path, default=DEFAULT_INPUT)
+    parser.add_argument("--assets-root", type=Path, default=DEFAULT_ASSETS_ROOT)
+    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT)
+    args = parser.parse_args()
+
+    try:
+        dataset_path, manifest_path, asset_path = publish(
+            args.input,
+            args.assets_root,
+            args.output_dir,
+        )
+    except (OSError, ValueError, json.JSONDecodeError, zipfile.BadZipFile) as error:
+        raise SystemExit(f"Cannot publish traffic signs: {error}") from error
+
+    dataset = json.loads(dataset_path.read_text(encoding="utf-8"))
+    print(f"Published traffic signs dataset {dataset['version']} ({len(dataset['signs'])} signs)")
+    print(f"  {dataset_path}")
+    if asset_path:
+        print(f"  {asset_path}")
     print(f"  {manifest_path}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
