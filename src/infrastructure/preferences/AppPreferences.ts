@@ -1,7 +1,11 @@
+import { isTauri } from "@tauri-apps/api/core";
+import { LazyStore } from "@tauri-apps/plugin-store";
 import type { LicenseType } from "../../domain/entities/question";
 
+const SETTINGS_FILE = "settings.json";
 const DEFAULT_LICENSE_KEY = "lythuyetlaixe.defaultExamLicense";
 const FALLBACK_LICENSE: LicenseType = "B";
+const store = new LazyStore(SETTINGS_FILE);
 
 export const SUPPORTED_EXAM_LICENSE_PREFERENCES: LicenseType[] = [
   "B",
@@ -20,20 +24,61 @@ export const SUPPORTED_EXAM_LICENSE_PREFERENCES: LicenseType[] = [
 
 const LICENSE_TYPES = new Set<LicenseType>(SUPPORTED_EXAM_LICENSE_PREFERENCES);
 
-export function getDefaultExamLicense(): LicenseType {
+function isSupportedLicense(value: unknown): value is LicenseType {
+  return typeof value === "string" && LICENSE_TYPES.has(value as LicenseType);
+}
+
+function readLegacyDefaultLicense(): LicenseType | null {
   try {
-    const value = window.localStorage.getItem(DEFAULT_LICENSE_KEY) as LicenseType | null;
-    return value && LICENSE_TYPES.has(value) ? value : FALLBACK_LICENSE;
+    const value = window.localStorage.getItem(DEFAULT_LICENSE_KEY);
+    return isSupportedLicense(value) ? value : null;
   } catch {
-    return FALLBACK_LICENSE;
+    return null;
   }
 }
 
-export function setDefaultExamLicense(value: LicenseType): void {
-  if (!LICENSE_TYPES.has(value)) return;
+function writeBrowserDefaultLicense(value: LicenseType): void {
   try {
     window.localStorage.setItem(DEFAULT_LICENSE_KEY, value);
   } catch {
-    // Preference persistence is non-critical; the app can keep using the in-memory value.
+    // Browser preview can continue with the in-memory value.
+  }
+}
+
+export async function getDefaultExamLicense(): Promise<LicenseType> {
+  if (!isTauri()) {
+    return readLegacyDefaultLicense() ?? FALLBACK_LICENSE;
+  }
+
+  try {
+    const stored = await store.get<unknown>(DEFAULT_LICENSE_KEY);
+    if (isSupportedLicense(stored)) return stored;
+
+    const legacy = readLegacyDefaultLicense();
+    if (legacy) {
+      await store.set(DEFAULT_LICENSE_KEY, legacy);
+      return legacy;
+    }
+  } catch {
+    const legacy = readLegacyDefaultLicense();
+    if (legacy) return legacy;
+  }
+
+  return FALLBACK_LICENSE;
+}
+
+export async function setDefaultExamLicense(value: LicenseType): Promise<void> {
+  if (!LICENSE_TYPES.has(value)) return;
+
+  if (!isTauri()) {
+    writeBrowserDefaultLicense(value);
+    return;
+  }
+
+  try {
+    await store.set(DEFAULT_LICENSE_KEY, value);
+  } catch {
+    // Preference persistence is non-critical; preserve a WebView fallback where possible.
+    writeBrowserDefaultLicense(value);
   }
 }
