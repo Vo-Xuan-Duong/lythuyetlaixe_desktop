@@ -1,8 +1,10 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
 const input = process.argv[2] ?? "data/traffic-signs/processed/traffic-signs.json";
 const assetsRoot = process.argv[3] ?? "data/traffic-signs/processed/assets";
+const sourceManifestPath = process.argv[4] ?? "data/traffic-signs/source/source-manifest.json";
 const GROUPS = new Set(["PROHIBITION", "MANDATORY", "WARNING", "INDICATION", "SUPPLEMENTARY"]);
 const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".svg"]);
 const MAX_SIGN_COUNT = 2_000;
@@ -14,6 +16,25 @@ const SHA_RE = /^[a-f0-9]{64}$/i;
 function fail(message) {
   console.error(`traffic-signs: INVALID - ${message}`);
   process.exit(1);
+}
+
+function readJson(file, label) {
+  if (!fs.existsSync(file)) fail(`missing ${label}: ${file}`);
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch (error) {
+    fail(`cannot parse ${label}: ${error.message}`);
+  }
+}
+
+function normalizeSha(value) {
+  return typeof value === "string" ? value.replace(/^sha256:/i, "").trim().toLowerCase() : "";
+}
+
+function sha256File(file) {
+  const digest = crypto.createHash("sha256");
+  digest.update(fs.readFileSync(file));
+  return digest.digest("hex");
 }
 
 function safeImagePath(value) {
@@ -39,12 +60,31 @@ function assertOptionalString(value, label) {
   }
 }
 
-if (!fs.existsSync(input)) fail(`missing ${input}`);
-let dataset;
-try {
-  dataset = JSON.parse(fs.readFileSync(input, "utf8"));
-} catch (error) {
-  fail(`cannot parse JSON: ${error.message}`);
+const dataset = readJson(input, "traffic-signs dataset");
+const sourceManifest = readJson(sourceManifestPath, "traffic-sign source manifest");
+const technical = sourceManifest?.technicalSource;
+if (!technical || typeof technical !== "object") fail(`source manifest is missing technicalSource`);
+if (technical.verificationStatus !== "verified-official-full-source") {
+  fail(`technicalSource is not verified-official-full-source`);
+}
+if (typeof technical.verifiedBy !== "string" || !technical.verifiedBy.trim()) {
+  fail(`technicalSource is missing verifiedBy`);
+}
+if (typeof technical.verifiedAt !== "string" || !technical.verifiedAt.trim()) {
+  fail(`technicalSource is missing verifiedAt`);
+}
+const technicalSha = normalizeSha(technical.sourceSha256);
+if (!SHA_RE.test(technicalSha)) fail(`technicalSource.sourceSha256 must be a SHA-256 hex digest`);
+if (typeof technical.localFile !== "string" || path.basename(technical.localFile) !== technical.localFile) {
+  fail(`technicalSource.localFile must be a plain filename`);
+}
+const technicalFile = path.join(path.dirname(sourceManifestPath), technical.localFile);
+if (!fs.existsSync(technicalFile) || !fs.statSync(technicalFile).isFile()) {
+  fail(`verified technical source file is missing: ${technicalFile}`);
+}
+const actualTechnicalSha = sha256File(technicalFile);
+if (actualTechnicalSha !== technicalSha) {
+  fail(`technicalSource SHA-256 does not match local file`);
 }
 
 if (dataset.dataset !== "VN_TRAFFIC_SIGNS") fail(`dataset must be VN_TRAFFIC_SIGNS`);
@@ -52,7 +92,10 @@ if (dataset.stage !== "production") fail(`stage must be production`);
 if (typeof dataset.version !== "string" || !VERSION_RE.test(dataset.version.trim())) fail(`invalid version`);
 if (typeof dataset.validFrom !== "string" || !DATE_RE.test(dataset.validFrom.trim())) fail(`validFrom must use YYYY-MM-DD`);
 if (typeof dataset.sourceDocument !== "string" || !dataset.sourceDocument.trim()) fail(`sourceDocument is required`);
-if (typeof dataset.sourceSha256 !== "string" || !SHA_RE.test(dataset.sourceSha256.replace(/^sha256:/i, ""))) fail(`sourceSha256 must be a SHA-256 hex digest`);
+if (dataset.sourceDocument.trim() !== sourceManifest.sourceDocument) fail(`sourceDocument does not match verified source manifest`);
+const datasetSourceSha = normalizeSha(dataset.sourceSha256);
+if (!SHA_RE.test(datasetSourceSha)) fail(`sourceSha256 must be a SHA-256 hex digest`);
+if (datasetSourceSha !== technicalSha) fail(`sourceSha256 does not match verified technicalSource`);
 if (!Array.isArray(dataset.signs) || dataset.signs.length === 0) fail(`signs must contain at least one verified record`);
 if (dataset.signs.length > MAX_SIGN_COUNT) fail(`signs exceeds maximum of ${MAX_SIGN_COUNT} records`);
 
@@ -67,6 +110,7 @@ for (const sign of dataset.signs) {
   if (!GROUPS.has(sign.groupCode)) fail(`${code}: invalid groupCode ${String(sign.groupCode)}`);
   if (typeof sign.meaning !== "string" || !sign.meaning.trim()) fail(`${code}: meaning is required`);
   if (typeof sign.sourceVersion !== "string" || !sign.sourceVersion.trim()) fail(`${code}: sourceVersion is required`);
+  if (sign.sourceVersion.trim() !== sourceManifest.sourceDocument) fail(`${code}: sourceVersion must match ${sourceManifest.sourceDocument}`);
   assertOptionalString(sign.recognition, `${code}: recognition`);
   assertOptionalString(sign.scope, `${code}: scope`);
   assertOptionalString(sign.notes, `${code}: notes`);
@@ -85,5 +129,7 @@ for (const sign of dataset.signs) {
 console.log(`traffic-signs: VALID`);
 console.log(`version: ${dataset.version}`);
 console.log(`source: ${dataset.sourceDocument}`);
+console.log(`source sha256: ${technicalSha}`);
+console.log(`source reviewer: ${technical.verifiedBy}`);
 console.log(`signs: ${dataset.signs.length}`);
 console.log(`images: ${imageCount}`);
