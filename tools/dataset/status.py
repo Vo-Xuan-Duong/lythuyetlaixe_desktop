@@ -8,6 +8,7 @@ It is intended to make manual answer/image review progress explicit between stag
 from __future__ import annotations
 
 import json
+import re
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[2]
 RAW = ROOT / "data" / "raw"
 PROCESSED = ROOT / "data" / "processed"
 DIST = ROOT / "dist" / "dataset"
+SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 
 FILES = {
     "parsed": RAW / "questions.unverified.json",
@@ -111,6 +113,15 @@ def marker(ok: bool) -> str:
     return "OK" if ok else "--"
 
 
+def short_hash(value: object) -> str:
+    if not isinstance(value, str):
+        return "—"
+    normalized = value.strip().lower().removeprefix("sha256:")
+    if not SHA256_RE.fullmatch(normalized):
+        return f"INVALID ({value})" if value else "—"
+    return f"{normalized[:12]}…{normalized[-8:]}"
+
+
 def main() -> int:
     payloads = {name: read_json(path) for name, path in FILES.items()}
 
@@ -126,12 +137,14 @@ def main() -> int:
     image_verified_rows = questions(payloads["images_verified"])
     production_rows = questions(payloads["production"])
 
+    best_answer_payload = payloads["answers_verified"] or payloads["resolved"] or payloads["parsed"]
     best_answer_rows = answer_verified_rows or resolved_rows or parsed_rows
+    best_image_payload = payloads["images_verified"] or payloads["image_candidates"]
     best_image_rows = image_verified_rows or image_candidate_rows
 
     unresolved = unresolved_answers(best_answer_rows)
-    warnings = parser_warning_count(best_answer_rows, payloads["answers_verified"] or payloads["resolved"] or payloads["parsed"])
-    image_pending = image_unresolved(best_image_rows, payloads["images_verified"] or payloads["image_candidates"])
+    warnings = parser_warning_count(best_answer_rows, best_answer_payload)
+    image_pending = image_unresolved(best_image_rows, best_image_payload)
 
     print("\nCurrent data")
     print("-" * 72)
@@ -144,6 +157,7 @@ def main() -> int:
     print(f"Image unresolved       : {len(image_pending)}")
     print(f"Image unresolved IDs   : {ids_preview(image_pending)}")
     print(f"Production questions   : {len(production_rows)}")
+    print(f"Source PDF SHA-256     : {short_hash((best_image_payload or best_answer_payload or {}).get('sourceSha256'))}")
 
     answer_reasons = review_reason_counts(payloads["answer_review"])
     image_reasons = review_reason_counts(payloads["image_review"])
@@ -155,6 +169,18 @@ def main() -> int:
         print("\nImage review reasons")
         for reason, count in image_reasons.most_common():
             print(f"- {count:3}  {reason}")
+
+    manifest = payloads["manifest"] or {}
+    if manifest:
+        print("\nDistribution integrity")
+        print("-" * 72)
+        print(f"Version                : {manifest.get('version', '—')}")
+        print(f"questions.json SHA-256 : {short_hash(manifest.get('sha256'))}")
+        print(f"Source PDF SHA-256     : {short_hash(manifest.get('sourceSha256'))}")
+        assets = manifest.get("assets")
+        print(
+            f"assets.zip SHA-256     : {short_hash(assets.get('sha256')) if isinstance(assets, dict) else '—'}"
+        )
 
     print("\nNext checkpoint")
     print("-" * 72)
@@ -171,7 +197,6 @@ def main() -> int:
     elif not payloads["manifest"]:
         print("Production data exists. Run local validator, then: pnpm dataset:publish")
     else:
-        manifest = payloads["manifest"] or {}
         print(
             "Distribution package exists: "
             f"version={manifest.get('version', '?')} stage={manifest.get('stage', '?')}."
