@@ -95,6 +95,11 @@ export function inspectAssetArchive(
   return files;
 }
 
+export async function hasAssetVersion(version: string): Promise<boolean> {
+  const versionName = safeVersion(version);
+  return exists(`${ASSET_ROOT}/${versionName}`, { baseDir: BaseDirectory.AppData });
+}
+
 export async function installAssetArchive(
   version: string,
   zipBytes: Uint8Array,
