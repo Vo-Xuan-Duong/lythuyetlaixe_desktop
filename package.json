@@ -43,10 +43,12 @@
     "signs:source:verify": "python tools/traffic-signs/verify_technical_source.py",
     "signs:candidates:official": "python tools/traffic-signs/extract_official_candidates.py",
     "signs:candidates:reference": "python tools/traffic-signs/extract_reference_candidates.py",
+    "signs:review:prepare": "python tools/traffic-signs/prepare_manual_review.py",
+    "signs:review:apply": "python tools/traffic-signs/apply_manual_review.py",
     "signs:status": "node tools/traffic-signs/status.mjs",
     "signs:validate": "node tools/traffic-signs/validate.mjs",
     "signs:publish": "pnpm signs:validate && python tools/traffic-signs/publish.py",
-    "signs:finalize": "pnpm signs:publish && pnpm signs:status",
+    "signs:finalize": "pnpm signs:review:apply && pnpm signs:publish && pnpm signs:status",
     "signs:test": "python -m unittest discover -s tools/traffic-signs/tests -p \"test_*.py\" -v",
     "data:test": "pnpm dataset:test && pnpm signs:test"
   },
