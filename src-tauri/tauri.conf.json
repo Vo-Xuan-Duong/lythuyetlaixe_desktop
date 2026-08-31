@@ -32,7 +32,10 @@
       "devCsp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["$APPDATA/dataset-assets/**/*"]
+        "scope": [
+          "$APPDATA/dataset-assets/**/*",
+          "$APPDATA/traffic-sign-assets/**/*"
+        ]
       }
     }
   },
