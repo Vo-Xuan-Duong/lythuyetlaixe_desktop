@@ -2,74 +2,93 @@
 
 Ứng dụng học và thi thử lý thuyết lái xe Việt Nam bằng **Tauri 2 + React + TypeScript + SQLite**, phát triển theo hướng **Windows Desktop trước, Android sau**.
 
-> Trạng thái hiện tại: application features và cross-platform foundation đã được code gần đầy đủ. Blocker production còn lại chủ yếu là bộ 600 câu + ảnh đã xác minh, endpoint HTTPS thật và local/device verification.
+> Application feature layer gần hoàn chỉnh. Production blockers chính còn lại là dữ liệu chính thức đã xác minh, remote storage và local/device verification.
 
 ## Stack
 
 - Tauri 2 + Rust.
-- React 19 + TypeScript.
-- Vite.
+- React 19 + TypeScript + Vite.
 - SQLite qua `@tauri-apps/plugin-sql`.
 - AppData asset cache qua `@tauri-apps/plugin-fs`.
 - Device preferences qua `@tauri-apps/plugin-store`.
 - Native review reminder qua `@tauri-apps/plugin-notification`.
 - pnpm `10.34.5`.
 
+## Hai dataset production độc lập
+
+Project không còn coi toàn bộ dữ liệu là một package duy nhất.
+
+```text
+QUESTIONS
+├── dataset: VN_GPLX_600
+├── manifest: VITE_QUESTIONS_MANIFEST_URL
+├── SQLite: dataset_metadata/categories/questions/answers/...
+└── assets: $APPDATA/dataset-assets/<version>/
+
+TRAFFIC SIGNS
+├── dataset: VN_TRAFFIC_SIGNS
+├── manifest: VITE_TRAFFIC_SIGNS_MANIFEST_URL
+├── SQLite: traffic_sign_metadata/traffic_signs
+└── assets: $APPDATA/traffic-sign-assets/<version>/
+```
+
+Hai dataset có version, checksum, source provenance, update và cache độc lập. Update catalog biển báo không làm tải/import lại 600 câu; update 600 câu cũng không chạm catalog biển báo.
+
 ## Tài liệu chính
 
 - Roadmap: [`KE_HOACH.md`](./KE_HOACH.md)
 - Trạng thái/handoff: [`docs/STATUS.md`](./docs/STATUS.md)
 - Local handoff checklist: [`docs/LOCAL_HANDOFF.md`](./docs/LOCAL_HANDOFF.md)
-- Remote dataset: [`docs/REMOTE_DATASET.md`](./docs/REMOTE_DATASET.md)
-- Dataset pipeline: [`tools/dataset/README.md`](./tools/dataset/README.md)
+- Remote datasets: [`docs/REMOTE_DATASET.md`](./docs/REMOTE_DATASET.md)
+- Dataset 600 câu: [`tools/dataset/README.md`](./tools/dataset/README.md)
+- Catalog biển báo: [`docs/TRAFFIC_SIGNS.md`](./docs/TRAFFIC_SIGNS.md)
 - Windows release: [`docs/LOCAL_RELEASE.md`](./docs/LOCAL_RELEASE.md)
 - Android bring-up: [`docs/ANDROID.md`](./docs/ANDROID.md)
 - Update/version policy: [`docs/UPDATE_STRATEGY.md`](./docs/UPDATE_STRATEGY.md)
 
 ## GitHub Actions
 
-Workflow `Validate` là **manual-only** (`workflow_dispatch`). Push/PR không tự chạy test hoặc build.
-
-Validation được thực hiện local bởi maintainer.
+Workflow validation là **manual-only**. Push/PR không tự chạy test hoặc build; maintainer thực hiện verification local.
 
 ## Cài dependency local
-
-Repository hiện chưa có `pnpm-lock.yaml` được xác minh sau nhóm dependency native mới. Trên máy phát triển:
 
 ```powershell
 corepack enable
 pnpm install
 ```
 
-Sau khi dependency graph ổn định, commit `pnpm-lock.yaml` để các lần cài sau reproducible.
+Sau khi dependency graph ổn định, commit `pnpm-lock.yaml` để install reproducible.
 
-## Cấu hình remote dataset
+## Cấu hình remote production
 
-Tạo `.env.production` từ `.env.example` trước production build:
+Tạo `.env.production` từ `.env.example`:
 
 ```env
-VITE_DATASET_MANIFEST_URL=https://data.example.com/lythuyetlaixe/dataset-manifest.json
+VITE_QUESTIONS_MANIFEST_URL=https://data.example.com/lythuyetlaixe/questions/dataset-manifest.json
+VITE_TRAFFIC_SIGNS_MANIFEST_URL=https://data.example.com/lythuyetlaixe/traffic-signs/manifest.json
 ```
 
-Production runtime yêu cầu HTTPS. HTTP chỉ được code bootstrap chấp nhận cho localhost development.
+`VITE_DATASET_MANIFEST_URL` chỉ còn là compatibility fallback cho bộ 600 câu; deployment mới không nên dùng.
 
-Ứng dụng không bundle 600 câu/ảnh production. Runtime:
+Production runtime yêu cầu HTTPS. HTTP chỉ được chấp nhận cho localhost development.
+
+## Luồng 600 câu
 
 ```text
-dataset-manifest.json
-    ↓ validate URL/version/provenance/checksum
-questions.json
-    ↓ bounded download + SHA-256 + runtime contract validation
-assets.zip (nếu có ảnh)
-    ↓ bounded download + SHA-256 + safe extract
-AppData assets
+questions/dataset-manifest.json
+    ↓
+questions.json → size/SHA-256/provenance/runtime validation
+    ↓
+assets.zip → bounded verify + safe extract
+    ↓
+$APPDATA/dataset-assets/<version>/
     ↓
 SQLite transaction
     ↓
-offline runtime
+Learning / Exam / Review / Statistics offline
 ```
 
-Ba checksum được tách riêng:
+Ba checksum của bộ câu hỏi:
 
 ```text
 sourceSha256  = PDF nguồn chính thức
@@ -77,7 +96,71 @@ contentSha256 = questions.json đã cài
 assetSha256   = assets.zip đã cài
 ```
 
-Chi tiết: [`docs/REMOTE_DATASET.md`](./docs/REMOTE_DATASET.md).
+### Pipeline 600 câu
+
+```powershell
+pnpm dataset:prepare:download
+pnpm dataset:status
+# manual answer/image verification
+pnpm dataset:finalize
+```
+
+Các lệnh chi tiết nằm trong [`tools/dataset/README.md`](./tools/dataset/README.md).
+
+Output publisher:
+
+```text
+dist/dataset/
+├── dataset-manifest.json
+├── questions.json
+└── assets.zip
+```
+
+## Luồng catalog biển báo
+
+Phần kiến thức 5 nhóm cơ bản được bundle trong binary và dùng được ngay cả khi catalog chưa tải. Catalog từng biển là remote dataset riêng:
+
+```text
+traffic-signs/manifest.json
+    ↓
+traffic-signs.json → source/content SHA-256 + schema validation
+    ↓
+traffic-sign-assets.zip → safe extract
+    ↓
+$APPDATA/traffic-sign-assets/<version>/
+    ↓
+SQLite traffic_signs
+    ↓
+search/filter/detail offline
+```
+
+Workspace local:
+
+```text
+data/traffic-signs/
+├── source/
+└── processed/
+    ├── traffic-signs.json
+    └── assets/
+```
+
+Validate/publish:
+
+```powershell
+pnpm signs:validate
+pnpm signs:publish
+```
+
+Output:
+
+```text
+dist/traffic-signs/
+├── manifest.json
+├── traffic-signs.json
+└── traffic-sign-assets.zip
+```
+
+Chưa được điền record biển cụ thể bằng suy đoán. Tên, ý nghĩa, phạm vi, ngoại lệ và hình phải được đối chiếu nguồn chính thức trước khi production publish.
 
 ## Chạy frontend/browser preview
 
@@ -85,7 +168,7 @@ Chi tiết: [`docs/REMOTE_DATASET.md`](./docs/REMOTE_DATASET.md).
 pnpm dev
 ```
 
-Browser preview dùng dữ liệu demo cho các feature cần Tauri/SQLite native.
+Browser preview dùng demo/built-in knowledge cho các phần cần native runtime.
 
 ## Chạy Tauri local
 
@@ -93,71 +176,32 @@ Browser preview dùng dữ liệu demo cho các feature cần Tauri/SQLite nativ
 pnpm tauri:dev
 ```
 
-Nếu máy chưa có local dataset, `VITE_DATASET_MANIFEST_URL` phải trỏ tới manifest hợp lệ.
+Nếu máy chưa có 600 câu local thì `VITE_QUESTIONS_MANIFEST_URL` phải hợp lệ. Catalog biển báo có thể được cài độc lập qua `VITE_TRAFFIC_SIGNS_MANIFEST_URL`.
 
-Settings có **Runtime Diagnostics** để kiểm tra nhanh SQLite, 600 câu, 60 câu điểm liệt, license mappings, checksum metadata, asset cache, Store và notification permission.
+Settings → **Runtime Diagnostics** kiểm tra riêng endpoint, metadata, checksum và asset cache của hai dataset.
 
-## Dataset pipeline
-
-Lệnh từng bước:
-
-```powershell
-pnpm dataset:download
-pnpm dataset:extract
-pnpm dataset:parse
-pnpm dataset:resolve
-pnpm dataset:review
-pnpm dataset:images
-pnpm dataset:review-report
-pnpm dataset:image-review
-pnpm dataset:promote
-pnpm dataset:validate
-pnpm dataset:publish
-pnpm dataset:status
-```
-
-Checkpoint helpers:
-
-```powershell
-pnpm dataset:prepare:download
-pnpm dataset:after-answer-review
-pnpm dataset:finalize
-```
-
-Không dùng AI để suy đoán đáp án chính thức. Answer/image unresolved phải được kiểm tra trực tiếp từ nguồn chính thức và lưu provenance trong manual review file.
-
-## Remote distribution package
-
-`pnpm dataset:publish` tạo:
+## R2 layout đề xuất
 
 ```text
-dist/dataset/
-├── dataset-manifest.json
-├── questions.json
-└── assets.zip              # nếu có ảnh
+lythuyetlaixe/
+├── questions/
+│   ├── dataset-manifest.json
+│   └── ...
+└── traffic-signs/
+    ├── manifest.json
+    └── ...
 ```
 
-Upload `questions.json`/`assets.zip` trước và publish manifest cuối cùng.
-
-Manifest chứa:
-
-- dataset/version/validFrom;
-- `sourceSha256` của PDF chính thức;
-- `sha256` của `questions.json`;
-- size;
-- optional asset SHA-256/size/fileCount.
-
-Payload URL phải cùng origin với manifest.
+Nên để hai root trên cùng custom domain để CSP/CORS đơn giản, nhưng lifecycle vẫn độc lập.
 
 ## SQLite và AppData
 
 ```text
 SQLite: sqlite:lythuyetlaixe.db
-Assets: $APPDATA/dataset-assets/<version>/...
-Store : settings.json
+Question assets:     $APPDATA/dataset-assets/<version>/...
+Traffic-sign assets: $APPDATA/traffic-sign-assets/<version>/...
+Store: settings.json
 ```
-
-Update dataset giữ user progress/bookmark/exam history theo question ID. Asset version mới chỉ được giữ sau khi SQLite import thành công.
 
 ## Windows local release
 
@@ -172,18 +216,16 @@ Output NSIS dự kiến:
 src-tauri/target/release/bundle/nsis/
 ```
 
-Production build bật CSP. `connect-src` hiện cho HTTPS vì host cuối chưa được chốt; trước public release nên scope về đúng origin dataset.
+Production CSP hiện cho HTTPS chung vì host cuối chưa chốt. Trước public release, scope `connect-src` về đúng origin R2 custom domain.
 
 ## Android local bring-up
-
-Sau khi cài Android Studio/JDK/SDK/NDK/Rust targets:
 
 ```powershell
 pnpm tauri:android:init
 pnpm tauri:android:dev
 ```
 
-Build commands đã có:
+Build commands:
 
 ```powershell
 pnpm tauri:android:build:debug
@@ -191,16 +233,17 @@ pnpm release:android:apk:local
 pnpm release:android:aab:local
 ```
 
-Android vẫn cần device verification cho SQL/FS/Store/Back/notifications/offline/update và signing.
+Android vẫn cần device verification cho SQL/FS/Store/Back/notifications/offline/update/signing.
 
 ## Versioning
 
 ```text
-Application: 0.1.0 → 0.2.0 → 1.0.0
-Dataset:     2025.06 → version mới khi dữ liệu chính thức thay đổi
+Application:    0.1.0 → 0.2.0 → 1.0.0
+Questions:      2025.06 → version mới khi bộ câu hỏi thay đổi
+Traffic signs:  2025.01 → version mới khi catalog/quy chuẩn thay đổi
 ```
 
-Dataset version đã publish là immutable. Sửa nội dung/ảnh phải phát hành version dataset mới.
+Mỗi version đã publish là immutable.
 
 ## Cấu trúc chính
 
@@ -221,26 +264,24 @@ src/
     ├── repositories/
     └── runtime/
 
-src-tauri/
-├── capabilities/
-├── src/
-├── Cargo.toml
-├── tauri.conf.json
-├── tauri.windows.conf.json
-└── tauri.android.conf.json
+data/
+├── processed/             # 600 questions
+├── raw/
+├── source/
+└── traffic-signs/         # independent sign catalog workspace
 
 tools/
 ├── dataset/
+├── traffic-signs/
 └── release/
 ```
 
 ## Quy tắc dữ liệu
 
 - Source of truth phải là tài liệu chính thức.
-- AI không tự suy đoán đáp án production.
-- Production dataset phải có provenance SHA-256.
-- Promotion/validator/runtime importer đều là release/import gates.
-- Dataset version đã phát hành là bất biến.
-- Payload mới chỉ activate sau khi JSON và assets verify thành công.
-- Update không được xóa progress/bookmark/exam history.
-- UI không hard-code quy định thi ngoài domain/config layer.
+- AI không tự suy đoán đáp án hoặc ý nghĩa production.
+- Hai dataset phải có provenance/checksum riêng.
+- Validator/runtime importer là release/import gates.
+- Version đã phát hành là bất biến.
+- Update 600 câu không xóa progress/bookmark/exam history.
+- Catalog biển báo không được dùng để tự suy luận đáp án bộ 600 câu.
