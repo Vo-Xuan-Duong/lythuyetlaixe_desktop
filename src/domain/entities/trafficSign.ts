@@ -6,6 +6,8 @@ export const TRAFFIC_SIGN_GROUP_CODES = [
   "SUPPLEMENTARY",
 ] as const;
 
+export const MAX_TRAFFIC_SIGN_COUNT = 2_000;
+
 export type TrafficSignGroupCode = (typeof TRAFFIC_SIGN_GROUP_CODES)[number];
 
 export interface TrafficSignRecord {
