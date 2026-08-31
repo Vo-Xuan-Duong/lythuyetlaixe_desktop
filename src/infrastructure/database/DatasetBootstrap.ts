@@ -1,5 +1,8 @@
 import { isTauri } from "@tauri-apps/api/core";
-import { installAssetArchive } from "../assets/RemoteAssetStore";
+import {
+  installAssetArchive,
+  removeAssetVersion,
+} from "../assets/RemoteAssetStore";
 import {
   DatasetImporter,
   getLocalDatasetState,
@@ -115,6 +118,10 @@ export async function bootstrapDataset(): Promise<DatasetBootstrapStatus> {
     const result = await new DatasetImporter().import(dataset, {
       assetSha256: manifest.assets?.sha256 ?? null,
     });
+
+    if (localState.version && localState.version !== result.version) {
+      await removeAssetVersion(localState.version).catch(() => undefined);
+    }
 
     return {
       state: "ready",
