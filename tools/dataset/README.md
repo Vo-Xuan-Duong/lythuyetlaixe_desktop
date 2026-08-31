@@ -1,6 +1,6 @@
 # Dataset pipeline
 
-Pipeline này biến tài liệu PDF chính thức thành dataset đã kiểm chứng để import vào SQLite.
+Pipeline này biến tài liệu PDF chính thức thành dataset đã kiểm chứng để import vào SQLite và phát hành qua remote storage.
 
 ## 1. Cài dependency tooling
 
@@ -86,7 +86,7 @@ data/raw/answer-review.json
 
 Nếu score thấp hoặc hai đáp án có score gần nhau, resolver **không đoán** và giữ `correct: null`.
 
-## 6. Manual review
+## 6. Manual answer review
 
 Copy template:
 
@@ -127,10 +127,45 @@ Kết quả:
 data/raw/questions.reviewed.json
 ```
 
-## 7. Promotion gate
+## 7. Trích xuất ảnh câu hỏi an toàn
+
+```powershell
+pnpm dataset:images
+```
+
+Stage `extract_question_images.py` được thiết kế riêng để **không làm lộ đáp án đúng**. Script không crop toàn bộ vùng câu hỏi/đáp án. Nó chỉ:
+
+1. dựng lại các dòng text theo tọa độ;
+2. tìm dòng `Câu N`;
+3. tìm đáp án đầu tiên (`1.` / `1)`);
+4. chỉ xét embedded image/vector graphics nằm giữa hai mốc đó;
+5. bỏ các vector line quá mỏng có thể là underline/separator;
+6. crop theo bounding box của graphics;
+7. nếu geometry mơ hồ thì đưa vào review thay vì tự gán.
+
+Kết quả:
+
+```text
+data/raw/questions.with-images.json
+data/raw/image-review.json
+data/processed/assets/images/q301.png
+...
+```
+
+`image-review.json` phải được kiểm tra trực quan sau lần chạy thật. Heuristic này chỉ tạo candidate ảnh; nó không thay thế manual review đối với trường hợp mơ hồ.
+
+Các ảnh production được đặt dưới `data/processed/assets/` để publisher sau đó tạo `assets.zip` cho remote dataset.
+
+## 8. Promotion gate
 
 ```powershell
 pnpm dataset:promote
+```
+
+Lệnh hiện promotion từ:
+
+```text
+data/raw/questions.with-images.json
 ```
 
 Promotion bị từ chối nếu:
@@ -150,13 +185,13 @@ data/processed/questions.json
 
 với `stage: production`.
 
-## 8. Production validation
+## 9. Production validation
 
 ```powershell
 pnpm dataset:validate
 ```
 
-Validator kiểm tra lại:
+Validator kiểm tra:
 
 - đúng 600 câu;
 - ID 1-600 đầy đủ;
@@ -165,17 +200,46 @@ Validator kiểm tra lại:
 - không còn câu cần verification;
 - mỗi câu có đúng 1 đáp án đúng;
 - source version/license metadata;
-- image path nếu bật `--images-root`.
+- image path an toàn;
+- extension ảnh được hỗ trợ;
+- mọi image path được tham chiếu phải tồn tại dưới `data/processed/assets`.
 
-Chỉ file vượt qua validator mới được phép seed/import vào SQLite.
+Chỉ file vượt qua validator mới được phép phát hành/import vào SQLite.
 
-## 9. Test tooling
+## 10. Publish remote package
+
+```powershell
+pnpm dataset:publish
+```
+
+Publisher tạo:
+
+```text
+dist/dataset/
+├── dataset-manifest.json
+├── questions.json
+└── assets.zip          # có khi dataset có ảnh
+```
+
+Manifest chứa SHA-256, kích thước và số asset. Ứng dụng tải/verify assets trước rồi mới activate dataset mới trong SQLite.
+
+Upload theo thứ tự an toàn:
+
+```text
+questions.json / assets.zip
+        ↓
+dataset-manifest.json cuối cùng
+```
+
+Không sửa nội dung của một dataset version đã phát hành. Có thay đổi dữ liệu thì tăng version.
+
+## 11. Test tooling — chạy local khi bạn chủ động
 
 ```powershell
 pnpm dataset:test
 ```
 
-CI cũng chạy unit test cho underline resolver, manual review và promotion gate.
+Workflow GitHub `Validate` hiện manual-only; không còn tự chạy khi push/PR. Mặc định việc kiểm tra được thực hiện local.
 
 ## Pipeline đầy đủ
 
@@ -200,18 +264,33 @@ resolve_answers.py
                     ↓
              questions.reviewed.json
                     ↓
+       extract_question_images.py
+          ├─ accepted → assets/images/*
+          └─ ambiguous → image-review.json
+                    ↓
+          questions.with-images.json
+                    ↓
               promote_dataset.py
                     ↓
             data/processed/questions.json
                     ↓
-                validate.mjs
+      validate.mjs + assets existence
                     ↓
-                 SQLite
+              publish_dataset.py
+                    ↓
+ questions.json + assets.zip + manifest
+                    ↓
+             remote storage
+                    ↓
+          Tauri bootstrap → SQLite
 ```
 
-## Phần còn lại của Phase 3
+## Phần vẫn cần thực hiện trên dữ liệu thật
 
-- Chạy pipeline trên PDF thật và hiệu chỉnh threshold từ số liệu thực tế.
-- Map/rasterize hình ảnh câu hỏi, đặc biệt biển báo và sa hình.
-- Hoàn tất manual review cho các câu không resolve tự động.
-- Import production dataset vào SQLite.
+- Chạy pipeline trên PDF chính thức đầy đủ.
+- Hiệu chỉnh threshold underline từ kết quả thực tế.
+- Manual review các đáp án chưa resolve chắc chắn.
+- Kiểm tra trực quan các ảnh trong `image-review.json` và ảnh đã render.
+- Tạo production dataset đủ 600 câu.
+- Publish lên endpoint HTTPS cố định.
+- Xác nhận first-run/update/offline trên app Tauri local.
