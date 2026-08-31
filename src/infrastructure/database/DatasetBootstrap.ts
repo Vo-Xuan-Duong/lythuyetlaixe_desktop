@@ -26,6 +26,10 @@ export type DatasetBootstrapStatus =
 
 const DATASET_MANIFEST_URL = import.meta.env.VITE_DATASET_MANIFEST_URL?.trim() ?? "";
 
+function normalizedSha256(value?: string | null): string {
+  return (value ?? "").trim().toLowerCase().replace(/^sha256:/, "");
+}
+
 export async function bootstrapDataset(): Promise<DatasetBootstrapStatus> {
   if (!isTauri()) {
     return { state: "demo", reason: "browser" };
@@ -61,8 +65,11 @@ export async function bootstrapDataset(): Promise<DatasetBootstrapStatus> {
 
   try {
     const manifest = await fetchDatasetManifest(DATASET_MANIFEST_URL);
+    const sameVersion = localState.ready && localState.version === manifest.version;
+    const sameChecksum =
+      normalizedSha256(localState.sourceSha256) === normalizedSha256(manifest.sha256);
 
-    if (localState.ready && localState.version === manifest.version) {
+    if (sameVersion && sameChecksum) {
       return {
         state: "ready",
         version: manifest.version,
