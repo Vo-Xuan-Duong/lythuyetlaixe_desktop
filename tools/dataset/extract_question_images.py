@@ -44,7 +44,7 @@ def rect_from(value: Any) -> fitz.Rect | None:
         rect = fitz.Rect(*(float(item) for item in value))
     except (TypeError, ValueError):
         return None
-    if rect.is_empty or not rect.is_finite:
+    if rect.is_empty or not rect.is_valid or rect.is_infinite:
         return None
     return rect
 
