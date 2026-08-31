@@ -1,78 +1,161 @@
-# Kiến thức biển báo giao thông
+# Kiến thức và catalog biển báo giao thông
 
-Module `Kiến thức biển báo` là kiến thức nền được bundle cùng application binary và **không phụ thuộc** production dataset 600 câu.
+Module `Kiến thức biển báo` gồm **hai lớp dữ liệu**:
+
+1. kiến thức 5 nhóm cơ bản được bundle cùng binary để luôn đọc được;
+2. catalog từng biển là dataset production **độc lập hoàn toàn** với bộ 600 câu.
 
 ## Nguồn
 
-Nội dung phân loại hiện bám theo:
+Kiến thức phân loại hiện bám theo `QCVN 41:2024/BGTVT`, ban hành kèm `Thông tư 51/2024/TT-BGTVT`, hiệu lực từ `01/01/2025`.
 
-- `QCVN 41:2024/BGTVT`;
-- ban hành kèm `Thông tư 51/2024/TT-BGTVT`;
-- hiệu lực từ `01/01/2025`;
-- Điều 11: phân loại biển báo hiệu.
-
-Provenance machine-readable nằm tại:
+Provenance của phần kiến thức nhóm nằm tại:
 
 ```text
 data/source/traffic-signs-knowledge-source.json
 ```
 
-## 5 nhóm cơ bản
-
-1. Biển báo cấm.
-2. Biển hiệu lệnh.
-3. Biển báo nguy hiểm và cảnh báo.
-4. Biển chỉ dẫn.
-5. Biển phụ, biển viết bằng chữ.
-
-UI hiện trình bày cho mỗi nhóm:
-
-- mục đích;
-- đặc điểm nhận biết chủ yếu;
-- mẹo ghi nhớ;
-- ví dụ loại nội dung thường gặp.
-
-Các hình dạng/màu sắc trong UI là minh họa phân loại, không thay thế hình biển chính thức và không được dùng làm nguồn đáp án sát hạch.
-
-## Quan hệ với dataset 600 câu
-
-Module kiến thức này tách khỏi production dataset:
+Catalog từng biển phải có provenance riêng trong:
 
 ```text
-Built-in knowledge
-    ↓
-QCVN 41:2024/BGTVT
-
-600-question dataset
-    ↓
-PDF/Công văn chính thức của Cục CSGT
+data/traffic-signs/source/
 ```
 
-Không được dùng nội dung built-in để tự suy đoán đáp án của câu hỏi production. Nhóm câu `ROAD_SIGNS` trong bộ 600 câu vẫn phải đi qua answer/image verification pipeline như các câu khác.
+Không dùng website/app luyện thi bên thứ ba làm source of truth.
 
-## Hướng mở rộng sau
-
-Sau khi production assets ổn định, có thể mở rộng thành catalog từng biển:
+## Tách khỏi bộ 600 câu
 
 ```text
-TrafficSign
-├── code        # ví dụ mã biển theo quy chuẩn
-├── group
-├── name
-├── image
-├── meaning
-├── scope
-├── exceptions
-├── relatedSigns
-└── sourceVersion
+600 questions
+├── metadata: dataset_metadata
+├── tables: categories/questions/answers/...
+├── cache: $APPDATA/dataset-assets/<version>/
+└── env: VITE_QUESTIONS_MANIFEST_URL
+
+Traffic signs
+├── metadata: traffic_sign_metadata
+├── table: traffic_signs
+├── cache: $APPDATA/traffic-sign-assets/<version>/
+└── env: VITE_TRAFFIC_SIGNS_MANIFEST_URL
 ```
 
-Ưu tiên tiếp theo nếu triển khai catalog đầy đủ:
+Version/checksum/update của hai dataset không phụ thuộc nhau.
 
-1. ingest danh mục/mã biển từ QCVN hiện hành;
-2. dùng hình ảnh có provenance rõ ràng;
-3. search theo mã/tên;
-4. filter theo 5 nhóm;
-5. trang chi tiết từng biển;
-6. liên kết sang câu hỏi `ROAD_SIGNS` khi dataset 600 câu đã sẵn sàng;
-7. version knowledge theo quy chuẩn để cập nhật khi văn bản thay đổi.
+## Traffic-sign record
+
+Production `traffic-signs.json` có dạng:
+
+```json
+{
+  "dataset": "VN_TRAFFIC_SIGNS",
+  "version": "2025.01",
+  "validFrom": "2025-01-01",
+  "stage": "production",
+  "sourceDocument": "QCVN 41:2024/BGTVT",
+  "sourceSha256": "<sha256-source-document>",
+  "signs": [
+    {
+      "code": "<official-code>",
+      "name": "<official-name>",
+      "groupCode": "PROHIBITION",
+      "meaning": "<verified-meaning>",
+      "recognition": "<optional>",
+      "scope": "<optional>",
+      "exceptions": [],
+      "notes": "<optional>",
+      "image": "signs/<file>.svg",
+      "keywords": [],
+      "sourceVersion": "QCVN 41:2024/BGTVT"
+    }
+  ]
+}
+```
+
+`groupCode` chỉ nhận:
+
+```text
+PROHIBITION
+MANDATORY
+WARNING
+INDICATION
+SUPPLEMENTARY
+```
+
+Không thêm record cụ thể nếu tên/ý nghĩa/phạm vi chưa được đối chiếu nguồn chính thức.
+
+## Local workspace
+
+```text
+data/traffic-signs/
+├── source/
+└── processed/
+    ├── traffic-signs.json
+    └── assets/
+        └── signs/...
+```
+
+Validate:
+
+```powershell
+pnpm signs:validate
+```
+
+Publish:
+
+```powershell
+pnpm signs:publish
+```
+
+Output:
+
+```text
+dist/traffic-signs/
+├── manifest.json
+├── traffic-signs.json
+└── traffic-sign-assets.zip   # chỉ có nếu dataset dùng ảnh
+```
+
+## R2 layout đề xuất
+
+```text
+lythuyetlaixe/
+├── questions/
+│   ├── dataset-manifest.json
+│   └── releases/<version>/...
+└── traffic-signs/
+    ├── manifest.json
+    └── releases/<version>/...
+```
+
+App dùng hai URL khác nhau:
+
+```env
+VITE_QUESTIONS_MANIFEST_URL=https://data.example.com/lythuyetlaixe/questions/dataset-manifest.json
+VITE_TRAFFIC_SIGNS_MANIFEST_URL=https://data.example.com/lythuyetlaixe/traffic-signs/manifest.json
+```
+
+## Runtime traffic-sign flow
+
+```text
+traffic-signs/manifest.json
+        ↓
+verify version/source/content SHA-256
+        ↓
+traffic-signs.json
+        ↓
+validate code/group/name/meaning/image path
+        ↓
+traffic-sign-assets.zip
+        ↓
+safe AppData install
+        ↓
+SQLite transaction → traffic_signs
+        ↓
+offline catalog
+```
+
+Nếu download/update lỗi nhưng máy đã có version hợp lệ, app giữ catalog local.
+
+## Quan hệ với đáp án 600 câu
+
+Catalog biển báo dùng để học/tra cứu. Nó **không phải nguồn đáp án** cho bộ 600 câu. Nhóm `ROAD_SIGNS` trong bộ 600 câu vẫn phải qua answer/image verification pipeline riêng.
