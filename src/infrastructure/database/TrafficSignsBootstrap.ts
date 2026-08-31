@@ -4,6 +4,7 @@ import {
   installTrafficSignAssetArchive,
   removeTrafficSignAssetVersion,
 } from "../assets/TrafficSignAssetStore";
+import { withDatabaseWriteLock } from "./database";
 import {
   getLocalTrafficSignsState,
   TrafficSignsImporter,
@@ -122,11 +123,13 @@ export async function bootstrapTrafficSigns(): Promise<TrafficSignsBootstrapStat
 
     let result;
     try {
-      result = await new TrafficSignsImporter().import(dataset, {
-        contentSha256: manifest.sha256,
-        assetSha256: manifest.assets?.sha256 ?? null,
-        force: selfHealingSameVersion && !sameSignCount,
-      });
+      result = await withDatabaseWriteLock(() =>
+        new TrafficSignsImporter().import(dataset, {
+          contentSha256: manifest.sha256,
+          assetSha256: manifest.assets?.sha256 ?? null,
+          force: selfHealingSameVersion && !sameSignCount,
+        }),
+      );
     } catch (error) {
       if (pendingAssetVersion) {
         await removeTrafficSignAssetVersion(pendingAssetVersion).catch(() => undefined);
