@@ -39,6 +39,7 @@ export interface LocalDatasetState {
   ready: boolean;
   version: string | null;
   sourceSha256: string | null;
+  assetSha256: string | null;
   questionCount: number;
 }
 
@@ -144,9 +145,10 @@ async function questionCount(db: Database): Promise<number> {
 
 export async function getLocalDatasetState(): Promise<LocalDatasetState> {
   const db = await getDatabase();
-  const [version, sourceSha256, count] = await Promise.all([
+  const [version, sourceSha256, assetSha256, count] = await Promise.all([
     metadataValue(db, "version"),
     metadataValue(db, "sourceSha256"),
+    metadataValue(db, "assetSha256"),
     questionCount(db),
   ]);
 
@@ -154,6 +156,7 @@ export async function getLocalDatasetState(): Promise<LocalDatasetState> {
     ready: Boolean(version) && count === EXPECTED_QUESTION_COUNT,
     version,
     sourceSha256: sourceSha256 || null,
+    assetSha256: assetSha256 || null,
     questionCount: count,
   };
 }
@@ -207,8 +210,6 @@ async function upsertQuestion(db: Database, question: DatasetQuestion): Promise<
     ],
   );
 
-  // Answers/license mappings are source data and can change between dataset versions.
-  // User progress is intentionally NOT deleted because it belongs to the learner.
   await db.execute("DELETE FROM answers WHERE question_id = $1", [question.id]);
   await db.execute("DELETE FROM question_license_types WHERE question_id = $1", [question.id]);
 
@@ -230,21 +231,27 @@ async function upsertQuestion(db: Database, question: DatasetQuestion): Promise<
 }
 
 export class DatasetImporter {
-  async import(dataset: ProductionDataset, options: { force?: boolean } = {}): Promise<DatasetImportResult> {
+  async import(
+    dataset: ProductionDataset,
+    options: { force?: boolean; assetSha256?: string | null } = {},
+  ): Promise<DatasetImportResult> {
     validateDatasetForImport(dataset);
     const db = await getDatabase();
 
-    const [currentVersion, currentSha256, currentCount] = await Promise.all([
+    const [currentVersion, currentSha256, currentAssetSha256, currentCount] = await Promise.all([
       metadataValue(db, "version"),
       metadataValue(db, "sourceSha256"),
+      metadataValue(db, "assetSha256"),
       questionCount(db),
     ]);
 
+    const requestedAssetSha256 = options.assetSha256 ?? "";
     if (
       !options.force &&
       currentVersion === dataset.version &&
       currentCount === EXPECTED_QUESTION_COUNT &&
-      (!dataset.sourceSha256 || currentSha256 === dataset.sourceSha256)
+      (!dataset.sourceSha256 || currentSha256 === dataset.sourceSha256) &&
+      currentAssetSha256 === requestedAssetSha256
     ) {
       return {
         status: "up-to-date",
@@ -264,6 +271,7 @@ export class DatasetImporter {
       await upsertMetadata(db, "version", dataset.version);
       await upsertMetadata(db, "validFrom", dataset.validFrom);
       await upsertMetadata(db, "sourceSha256", dataset.sourceSha256 ?? "");
+      await upsertMetadata(db, "assetSha256", requestedAssetSha256);
       await upsertMetadata(db, "importedAt", new Date().toISOString());
       await db.execute("COMMIT");
     } catch (error) {
