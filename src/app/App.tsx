@@ -74,7 +74,14 @@ export function App() {
       );
     }
     if (section === "settings") {
-      return <SettingsPage datasetStatus={datasetStatus} onCheckDataset={retryDataset} />;
+      return (
+        <SettingsPage
+          datasetStatus={datasetStatus}
+          trafficSignsStatus={trafficSignsStatus}
+          onCheckDataset={retryDataset}
+          onCheckTrafficSigns={retryTrafficSigns}
+        />
+      );
     }
     if (datasetStatus.state === "checking" || datasetStatus.state === "error") {
       return <DatasetSetupPage status={datasetStatus} onRetry={retryDataset} />;
