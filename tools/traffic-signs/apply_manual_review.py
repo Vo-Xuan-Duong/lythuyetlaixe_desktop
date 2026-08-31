@@ -1,17 +1,18 @@
 from __future__ import annotations
 
-import hashlib
+import argparse
 import json
 import re
 from pathlib import Path
 
+from source_provenance import DEFAULT_MANIFEST, inspect_multipart_source
+
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE_MANIFEST = ROOT / "data" / "traffic-signs" / "source" / "source-manifest.json"
 DEFAULT_REVIEW = ROOT / "data" / "traffic-signs" / "raw" / "manual-review.json"
 DEFAULT_OUTPUT = ROOT / "data" / "traffic-signs" / "processed" / "traffic-signs.json"
+OFFICIAL_CANDIDATES = ROOT / "data" / "traffic-signs" / "raw" / "official-candidates.json"
 GROUPS = {"PROHIBITION", "MANDATORY", "WARNING", "INDICATION", "SUPPLEMENTARY"}
-CODE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$")
-SHA_RE = re.compile(r"^[0-9a-f]{64}$")
+CODE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.,_-]{0,31}$")
 
 
 def load_json(path: Path, label: str) -> dict:
@@ -21,18 +22,6 @@ def load_json(path: Path, label: str) -> dict:
     if not isinstance(value, dict):
         raise ValueError(f"{label} must contain a JSON object")
     return value
-
-
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def normalize_sha(value: object) -> str:
-    return str(value or "").strip().lower().removeprefix("sha256:")
 
 
 def require_non_empty_string(value: object, label: str) -> str:
@@ -60,24 +49,27 @@ def string_array(value: object, label: str) -> list[str]:
     return result
 
 
-def verified_source() -> tuple[dict, str]:
-    manifest = load_json(SOURCE_MANIFEST, "traffic-sign source manifest")
-    technical = manifest.get("technicalSource")
-    if not isinstance(technical, dict):
-        raise ValueError("traffic-sign source manifest is missing technicalSource")
-    if technical.get("verificationStatus") != "verified-official-full-source":
-        raise ValueError("technicalSource must be verified-official-full-source before applying manual review")
-
-    filename = technical.get("localFile")
-    if not isinstance(filename, str) or Path(filename).name != filename:
-        raise ValueError("technicalSource.localFile must be a plain filename")
-    source = SOURCE_MANIFEST.parent / filename
-    if not source.is_file():
-        raise ValueError(f"missing verified technical source: {source}")
-    declared = normalize_sha(technical.get("sourceSha256"))
-    if not SHA_RE.fullmatch(declared) or sha256_file(source) != declared:
-        raise ValueError("technicalSource SHA-256 does not match the verified local file")
-    return manifest, declared
+def official_candidate_codes(source_sha256: str) -> set[str]:
+    candidates = load_json(OFFICIAL_CANDIDATES, "official traffic-sign candidates")
+    if candidates.get("stage") != "review-candidate":
+        raise ValueError("official-candidates.json has an unsupported stage")
+    if str(candidates.get("sourceSha256") or "").strip().lower() != source_sha256:
+        raise ValueError("official candidates were not generated from the currently verified source bundle")
+    rows = candidates.get("candidates")
+    if not isinstance(rows, list) or not rows:
+        raise ValueError("official candidates contain no sections")
+    result: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("official candidate rows must be objects")
+        codes = row.get("codes")
+        if not isinstance(codes, list) or not codes:
+            raise ValueError(f"official candidate section {row.get('section')} has no detected codes; fix extraction/manual candidate metadata first")
+        for code in codes:
+            if not isinstance(code, str) or not CODE_RE.fullmatch(code.strip()):
+                raise ValueError(f"invalid official candidate code: {code}")
+            result.add(code.strip().upper())
+    return result
 
 
 def normalize_record(record: dict, source_document: str) -> dict:
@@ -107,7 +99,7 @@ def normalize_record(record: dict, source_document: str) -> dict:
     if image and record.get("imageVerified") is not True:
         raise ValueError(f"{code}: image is set but imageVerified is not true")
 
-    return {
+    result = {
         "code": code,
         "name": require_non_empty_string(record.get("name"), f"{code}.name"),
         "groupCode": group,
@@ -125,22 +117,31 @@ def normalize_record(record: dict, source_document: str) -> dict:
         "verifiedAt": verified_at,
         "imageVerified": True if image else False,
     }
+    if isinstance(record.get("imageSelection"), dict):
+        result["imageSelection"] = record["imageSelection"]
+    return result
 
 
 def main() -> int:
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Build production traffic-signs.json from fully verified manual-review records")
+    parser = argparse.ArgumentParser(description="Build production traffic-signs.json from fully verified official manual-review records")
     parser.add_argument("--review", type=Path, default=DEFAULT_REVIEW)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     args = parser.parse_args()
 
     try:
-        source_manifest, source_sha = verified_source()
+        provenance = inspect_multipart_source(DEFAULT_MANIFEST, require_verified=True)
         review = load_json(args.review, "traffic-sign manual review")
         if review.get("dataset") != "VN_TRAFFIC_SIGNS_REVIEW" or review.get("stage") != "manual-review":
             raise ValueError("manual-review.json has an unsupported dataset/stage")
-        source_document = require_non_empty_string(source_manifest.get("sourceDocument"), "sourceDocument")
+        if review.get("candidateSource") != "official-technical-source":
+            raise ValueError("reference-only review files cannot be promoted; regenerate review from official candidates")
+        if str(review.get("sourceSha256") or "").strip().lower() != provenance.source_sha256:
+            raise ValueError("manual review sourceSha256 does not match the currently verified official bundle")
+        unresolved_sections = review.get("sectionsWithoutCodes")
+        if isinstance(unresolved_sections, list) and unresolved_sections:
+            raise ValueError(f"manual review has {len(unresolved_sections)} source section(s) without detected codes")
+
+        source_document = require_non_empty_string(provenance.manifest.get("sourceDocument"), "sourceDocument")
         if review.get("sourceDocument") != source_document:
             raise ValueError("manual review sourceDocument does not match verified source manifest")
 
@@ -148,6 +149,7 @@ def main() -> int:
         if not isinstance(records, list) or not records:
             raise ValueError("manual review contains no records")
 
+        expected_codes = official_candidate_codes(provenance.source_sha256)
         signs: list[dict] = []
         seen: set[str] = set()
         for raw_record in records:
@@ -159,6 +161,13 @@ def main() -> int:
             seen.add(sign["code"])
             signs.append(sign)
 
+        missing = sorted(expected_codes - seen)
+        unexpected = sorted(seen - expected_codes)
+        if missing or unexpected:
+            raise ValueError(
+                f"manual review code set does not match official candidates: missing={missing[:20]}, unexpected={unexpected[:20]}"
+            )
+
         signs.sort(key=lambda item: item["code"])
         output = {
             "dataset": "VN_TRAFFIC_SIGNS",
@@ -166,11 +175,12 @@ def main() -> int:
             "validFrom": require_non_empty_string(review.get("validFrom"), "review.validFrom"),
             "stage": "production",
             "sourceDocument": source_document,
-            "sourceSha256": source_sha,
+            "sourceSha256": provenance.source_sha256,
             "review": {
-                "method": "manual-official-source-verification",
+                "method": "manual-official-gazette-verification",
                 "recordCount": len(signs),
                 "sourceCandidate": review.get("candidateFile"),
+                "sourcePartCount": len(provenance.part_files),
             },
             "signs": signs,
         }
@@ -180,6 +190,7 @@ def main() -> int:
         raise SystemExit(f"Cannot apply traffic-sign manual review: {error}") from error
 
     print(f"[ok] verified signs: {len(signs)}")
+    print(f"[ok] official candidate codes covered: {len(expected_codes)}")
     print(f"[ok] production candidate: {args.output}")
     print("Next: pnpm signs:validate, then pnpm signs:publish.")
     return 0
