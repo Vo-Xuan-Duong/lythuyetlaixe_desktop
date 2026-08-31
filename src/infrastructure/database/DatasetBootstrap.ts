@@ -6,6 +6,7 @@ import {
 import {
   DatasetImporter,
   getLocalDatasetState,
+  migrateLegacyContentChecksum,
 } from "./DatasetImporter";
 import {
   downloadDataset,
@@ -72,9 +73,24 @@ export async function bootstrapDataset(): Promise<DatasetBootstrapStatus> {
 
   try {
     const manifest = await fetchDatasetManifest(DATASET_MANIFEST_URL);
+
+    // Builds created before contentSha256 existed stored manifest.sha256 in
+    // sourceSha256. Only migrate when the exact remote checksum proves it is the
+    // legacy package hash; never guess an official PDF provenance hash.
+    if (
+      localState.ready &&
+      localState.version === manifest.version &&
+      !normalizedSha256(localState.contentSha256)
+    ) {
+      const migrated = await migrateLegacyContentChecksum(manifest.sha256);
+      if (migrated) {
+        localState = await getLocalDatasetState();
+      }
+    }
+
     const sameVersion = localState.ready && localState.version === manifest.version;
     const sameDatasetChecksum =
-      normalizedSha256(localState.sourceSha256) === normalizedSha256(manifest.sha256);
+      normalizedSha256(localState.contentSha256) === normalizedSha256(manifest.sha256);
     const remoteAssetSha256 = manifest.assets ? normalizedSha256(manifest.assets.sha256) : "";
     const sameAssetChecksum = normalizedSha256(localState.assetSha256) === remoteAssetSha256;
 
@@ -93,7 +109,8 @@ export async function bootstrapDataset(): Promise<DatasetBootstrapStatus> {
         version: localState.version!,
         importStatus: "up-to-date",
         source: "local-cache",
-        warning: "Remote dataset changed without a version bump. Local immutable version was kept.",
+        warning:
+          "Remote package changed without a version bump, hoặc local package thiếu checksum phân phối có thể xác minh. Local immutable version was kept.",
       };
     }
 
@@ -116,6 +133,7 @@ export async function bootstrapDataset(): Promise<DatasetBootstrapStatus> {
     }
 
     const result = await new DatasetImporter().import(dataset, {
+      contentSha256: manifest.sha256,
       assetSha256: manifest.assets?.sha256 ?? null,
     });
 
