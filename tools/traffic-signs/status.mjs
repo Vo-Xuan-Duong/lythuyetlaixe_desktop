@@ -33,12 +33,16 @@ function normalizeSha(value) {
   return typeof value === "string" ? value.replace(/^sha256:/i, "").trim().toLowerCase() : "";
 }
 
-function localEntryState(entry) {
-  const filename = typeof entry?.localFile === "string" && path.basename(entry.localFile) === entry.localFile
-    ? entry.localFile
+function safeLocalFile(value) {
+  return typeof value === "string" && value.trim() && path.basename(value.trim()) === value.trim()
+    ? value.trim()
     : null;
+}
+
+function localEntryState(entry) {
+  const filename = safeLocalFile(entry?.localFile);
   const file = filename ? path.join(sourceDir, filename) : null;
-  const exists = Boolean(file && fs.existsSync(file));
+  const exists = Boolean(file && fs.existsSync(file) && fs.statSync(file).isFile());
   const declaredSha = normalizeSha(entry?.sourceSha256);
   const actualSha = exists ? sha256File(file) : "";
   return {
@@ -47,6 +51,58 @@ function localEntryState(entry) {
     declaredSha,
     actualSha,
     hashMatches: Boolean(exists && SHA_RE.test(declaredSha) && declaredSha === actualSha),
+  };
+}
+
+function canonicalBundleSha256(parts) {
+  if (!Array.isArray(parts) || parts.length === 0) return "";
+  const rows = [];
+  for (let index = 0; index < parts.length; index += 1) {
+    const part = parts[index];
+    const issue = typeof part?.issue === "string" ? part.issue.trim() : "";
+    const checksum = normalizeSha(part?.sourceSha256);
+    if (!issue || !SHA_RE.test(checksum)) return "";
+    rows.push(`${index + 1}|${issue}|${checksum}\n`);
+  }
+  return crypto.createHash("sha256").update(rows.join(""), "utf8").digest("hex");
+}
+
+function technicalState(technical) {
+  const parts = Array.isArray(technical?.parts) ? technical.parts : [];
+  const partStates = parts.map((part) => ({ issue: part?.issue ?? "?", ...localEntryState(part) }));
+  const downloaded = partStates.filter((state) => state.exists).length;
+  const verifiedParts = partStates.filter((state) => state.hashMatches).length;
+  const canonicalSha = canonicalBundleSha256(parts);
+  const declaredBundleSha = normalizeSha(technical?.sourceSha256);
+  const bundleMatches = Boolean(canonicalSha && declaredBundleSha === canonicalSha);
+  const combinedFilename = safeLocalFile(technical?.localFile);
+  const combinedFile = combinedFilename ? path.join(sourceDir, combinedFilename) : null;
+  const combinedExists = Boolean(combinedFile && fs.existsSync(combinedFile) && fs.statSync(combinedFile).isFile());
+  const actualCombinedSha = combinedExists ? sha256File(combinedFile) : "";
+  const declaredCombinedSha = normalizeSha(technical?.combinedSha256);
+  const combinedMatches = Boolean(combinedExists && SHA_RE.test(declaredCombinedSha) && declaredCombinedSha === actualCombinedSha);
+  const reviewed = Boolean(
+    technical?.acquisitionMethod === "official-gazette-multipart" &&
+    parts.length > 0 &&
+    verifiedParts === parts.length &&
+    bundleMatches &&
+    combinedMatches &&
+    technical?.verificationStatus === "verified-official-full-source" &&
+    typeof technical?.verifiedBy === "string" && technical.verifiedBy.trim() &&
+    typeof technical?.verifiedAt === "string" && technical.verifiedAt.trim()
+  );
+  return {
+    parts,
+    partStates,
+    downloaded,
+    verifiedParts,
+    canonicalSha,
+    declaredBundleSha,
+    bundleMatches,
+    combinedFilename,
+    combinedExists,
+    combinedMatches,
+    reviewed,
   };
 }
 
@@ -61,23 +117,23 @@ const referenceCandidates = readJson(referenceCandidatePath);
 const manualReview = readJson(manualReviewPath);
 const published = readJson(publishedManifestPath);
 const legal = localEntryState(source?.legalBasis);
-const technical = localEntryState(source?.technicalSource);
-const technicalVerified = Boolean(
-  technical.hashMatches &&
-  source?.technicalSource?.verificationStatus === "verified-official-full-source" &&
-  typeof source?.technicalSource?.verifiedBy === "string" &&
-  source.technicalSource.verifiedBy.trim(),
-);
+const technical = technicalState(source?.technicalSource);
 
 const signs = Array.isArray(processed?.signs) ? processed.signs : [];
 const officialCandidateSections = Array.isArray(officialCandidates?.candidates) ? officialCandidates.candidates : [];
+const officialCandidateImages = officialCandidateSections.reduce(
+  (count, candidate) => count + (Array.isArray(candidate?.imageCandidates) ? candidate.imageCandidates.length : 0),
+  0,
+);
 const referenceCandidateSections = Array.isArray(referenceCandidates?.candidates) ? referenceCandidates.candidates : [];
 const reviewRecords = Array.isArray(manualReview?.records) ? manualReview.records : [];
 const reviewedRecords = reviewRecords.filter((record) => record?.verified === true);
-const imageReviewPending = reviewRecords.filter((record) => typeof record?.image === "string" && record.image.trim() && record?.imageVerified !== true);
+const selectedImages = reviewRecords.filter((record) => typeof record?.selectedImageCandidate === "string" && record.selectedImageCandidate.trim());
+const processedReviewImages = reviewRecords.filter((record) => typeof record?.image === "string" && record.image.trim());
+const imageReviewPending = processedReviewImages.filter((record) => record?.imageVerified !== true);
 const processedSourceSha = normalizeSha(processed?.sourceSha256);
 const processedProvenanceMatches = Boolean(
-  technicalVerified && processedSourceSha && processedSourceSha === technical.declaredSha,
+  technical.reviewed && processedSourceSha && processedSourceSha === technical.canonicalSha,
 );
 const imagePaths = signs
   .map((sign) => sign?.image)
@@ -97,16 +153,19 @@ console.log(`Source manifest              : ${yesNo(Boolean(source))}`);
 if (source?.__error) console.log(`Source manifest error        : ${source.__error}`);
 console.log(`Legal-basis file             : ${legal.exists ? legal.filename : "missing"}`);
 console.log(`Legal-basis SHA verified     : ${yesNo(legal.hashMatches)}`);
-console.log(`Technical full source        : ${technical.exists ? technical.filename : "missing"}`);
-console.log(`Technical SHA matches        : ${yesNo(technical.hashMatches)}`);
-console.log(`Technical source reviewed    : ${yesNo(technicalVerified)}`);
-if (technical.exists && technical.declaredSha && !technical.hashMatches) {
-  console.log(`Technical SHA mismatch       : declared=${technical.declaredSha} actual=${technical.actualSha}`);
-}
-console.log(`Official candidates          : ${officialCandidateSections.length}`);
+console.log(`Official Gazette parts       : ${technical.downloaded}/${technical.parts.length} downloaded`);
+console.log(`Part SHA verified            : ${technical.verifiedParts}/${technical.parts.length}`);
+console.log(`Canonical bundle SHA matches : ${yesNo(technical.bundleMatches)}`);
+console.log(`Combined parsing PDF         : ${technical.combinedExists ? technical.combinedFilename : "missing"}`);
+console.log(`Combined PDF SHA verified    : ${yesNo(technical.combinedMatches)}`);
+console.log(`Technical source reviewed    : ${yesNo(technical.reviewed)}`);
+console.log(`Official candidate sections  : ${officialCandidateSections.length}`);
+console.log(`Official image candidates    : ${officialCandidateImages}`);
 console.log(`Reference-only candidates    : ${referenceCandidateSections.length}`);
 console.log(`Manual review records        : ${reviewRecords.length}`);
 console.log(`Manual verified records      : ${reviewedRecords.length}`);
+console.log(`Selected image candidates    : ${selectedImages.length}`);
+console.log(`Processed review images      : ${processedReviewImages.length}`);
 console.log(`Image verification pending   : ${imageReviewPending.length}`);
 console.log(`Processed dataset            : ${yesNo(Boolean(processed))}`);
 if (processed?.__error) console.log(`Processed JSON error         : ${processed.__error}`);
@@ -118,21 +177,23 @@ console.log(`Missing images               : ${missingImages.length}`);
 console.log(`Published manifest           : ${yesNo(Boolean(published))}`);
 console.log(`Published version            : ${published?.version ?? "-"}`);
 
-let next = "Run pnpm signs:source:download to fetch/hash the official promulgation document.";
-if (!technical.exists) {
-  next = `Obtain the full official QCVN 41:2024/BGTVT and place it at data/traffic-signs/source/${source?.technicalSource?.localFile ?? "qcvn-41-2024-bgvt-full.pdf"}. You may run signs:candidates:reference meanwhile for a non-production typing aid.`;
-} else if (!technicalVerified) {
-  next = "Run pnpm signs:source:verify -- --reviewer <name> --official-url <official-full-source-url>.";
+let next = "Run pnpm signs:source:download to fetch/hash all official Gazette source parts.";
+if (technical.parts.length === 0 || technical.downloaded !== technical.parts.length || technical.verifiedParts !== technical.parts.length || !technical.bundleMatches || !technical.combinedMatches) {
+  next = "Run pnpm signs:source:download and resolve any missing/hash-mismatched Gazette part before review.";
+} else if (!technical.reviewed) {
+  next = "Run pnpm signs:source:verify -- --reviewer <name>.";
 } else if (officialCandidateSections.length === 0) {
-  next = "Run pnpm signs:candidates:official to extract review candidates from the verified full QCVN PDF.";
+  next = "Run pnpm signs:candidates:official, then pnpm signs:candidates:images.";
 } else if (reviewRecords.length === 0) {
-  next = "Run pnpm signs:review:prepare, then fill/verify each record against the full official QCVN source.";
+  next = "Run pnpm signs:review:prepare and pnpm signs:review:workspace.";
+} else if (selectedImages.length > processedReviewImages.length) {
+  next = "Export manual-review.json, run pnpm signs:review:images, rebuild workspace, inspect copied assets, then mark imageVerified.";
 } else if (reviewedRecords.length !== reviewRecords.length || imageReviewPending.length > 0) {
-  next = `Finish manual review: ${reviewRecords.length - reviewedRecords.length} record(s) unverified, ${imageReviewPending.length} image(s) unverified.`;
+  next = `Finish manual review: ${reviewRecords.length - reviewedRecords.length} record(s) unverified, ${imageReviewPending.length} processed image(s) unverified.`;
 } else if (!processed) {
-  next = "Run pnpm signs:review:apply to build production traffic-signs.json from the verified review file.";
+  next = "Run pnpm signs:review:apply to build production traffic-signs.json.";
 } else if (!processedProvenanceMatches) {
-  next = "Fix traffic-signs.json provenance so it matches the verified technical source exactly.";
+  next = "Fix traffic-signs.json sourceSha256 so it matches the verified canonical Gazette bundle.";
 } else if (signs.length === 0) {
   next = "Add verified traffic-sign records; empty catalogs cannot be published.";
 } else if (missingImages.length > 0) {
@@ -145,6 +206,11 @@ if (!technical.exists) {
 
 console.log(`Next                         : ${next}`);
 
+for (const state of technical.partStates) {
+  if (!state.exists || !state.hashMatches) {
+    console.log(`  source part: ${state.issue} -> ${state.exists ? "SHA mismatch" : "missing"} (${state.filename ?? "invalid localFile"})`);
+  }
+}
 if (missingImages.length > 0) {
   for (const item of missingImages.slice(0, 20)) console.log(`  missing/unsafe: ${item}`);
   if (missingImages.length > 20) console.log(`  ... ${missingImages.length - 20} more`);
