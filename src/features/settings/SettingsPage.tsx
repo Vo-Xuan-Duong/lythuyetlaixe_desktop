@@ -48,16 +48,22 @@ export function SettingsPage({ datasetStatus, onCheckDataset }: SettingsPageProp
   const [message, setMessage] = useState<string>();
   const [error, setError] = useState<string>();
   const [refreshKey, setRefreshKey] = useState(0);
-  const [defaultLicense, setDefaultLicense] = useState<LicenseType>(() => getDefaultExamLicense());
+  const [defaultLicense, setDefaultLicense] = useState<LicenseType>("B");
+  const [preferenceLoading, setPreferenceLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
-    void getAppRuntimeInfo()
-      .then((value) => {
-        if (active) setRuntime(value);
+    void Promise.all([getAppRuntimeInfo(), getDefaultExamLicense()])
+      .then(([runtimeInfo, license]) => {
+        if (!active) return;
+        setRuntime(runtimeInfo);
+        setDefaultLicense(license);
       })
-      .catch((runtimeError) => {
-        if (active) setError(runtimeError instanceof Error ? runtimeError.message : String(runtimeError));
+      .catch((loadError) => {
+        if (active) setError(loadError instanceof Error ? loadError.message : String(loadError));
+      })
+      .finally(() => {
+        if (active) setPreferenceLoading(false);
       });
     return () => {
       active = false;
@@ -94,10 +100,16 @@ export function SettingsPage({ datasetStatus, onCheckDataset }: SettingsPageProp
 
   const canMutateLocalData = datasetStatus.state === "ready" && resetting === undefined;
 
-  const changeDefaultLicense = (value: LicenseType) => {
+  const changeDefaultLicense = async (value: LicenseType) => {
     setDefaultLicense(value);
-    setDefaultExamLicense(value);
-    setMessage(`Đã đặt hạng ${value} làm mặc định cho Thi thử.`);
+    setMessage(undefined);
+    setError(undefined);
+    try {
+      await setDefaultExamLicense(value);
+      setMessage(`Đã đặt hạng ${value} làm mặc định cho Thi thử.`);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : String(saveError));
+    }
   };
 
   const reset = async (target: ResetTarget) => {
@@ -205,11 +217,12 @@ export function SettingsPage({ datasetStatus, onCheckDataset }: SettingsPageProp
         <div className="settings-preference-row">
           <div>
             <strong>Hạng sát hạch khi mở Thi thử</strong>
-            <span>Có thể đổi lại trực tiếp ở màn hình Thi thử bất kỳ lúc nào.</span>
+            <span>Preference được lưu bằng Tauri Store trên app native và localStorage khi preview bằng browser.</span>
           </div>
           <select
             value={defaultLicense}
-            onChange={(event) => changeDefaultLicense(event.target.value as LicenseType)}
+            disabled={preferenceLoading}
+            onChange={(event) => void changeDefaultLicense(event.target.value as LicenseType)}
             aria-label="Hạng GPLX mặc định"
           >
             {SUPPORTED_EXAM_LICENSE_PREFERENCES.map((license) => (
