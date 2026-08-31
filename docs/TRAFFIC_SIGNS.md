@@ -39,7 +39,7 @@ Traffic signs
 └── env: VITE_TRAFFIC_SIGNS_MANIFEST_URL
 ```
 
-Version/checksum/update của hai dataset không phụ thuộc nhau.
+Version/checksum/update của hai dataset không phụ thuộc nhau. App kiểm tra cả hai manifest khi khởi động; lỗi traffic-sign catalog không chặn luồng 600 câu.
 
 ## Traffic-sign record
 
@@ -115,6 +115,32 @@ dist/traffic-signs/
 └── traffic-sign-assets.zip   # chỉ có nếu dataset dùng ảnh
 ```
 
+Manifest có contract:
+
+```json
+{
+  "dataset": "VN_TRAFFIC_SIGNS",
+  "version": "2025.01",
+  "validFrom": "2025-01-01",
+  "stage": "production",
+  "datasetUrl": "traffic-signs.json",
+  "sha256": "<traffic-signs.json sha256>",
+  "sourceDocument": "QCVN 41:2024/BGTVT",
+  "sourceSha256": "<source document sha256>",
+  "signCount": 123,
+  "sizeBytes": 123456,
+  "assets": {
+    "url": "traffic-sign-assets.zip",
+    "format": "zip",
+    "sha256": "<asset archive sha256>",
+    "sizeBytes": 654321,
+    "fileCount": 120
+  }
+}
+```
+
+`signCount` bắt buộc và được cross-check với số record thật trong `traffic-signs.json`. Nếu cùng version/checksum nhưng local thiếu row hoặc mất asset directory, bootstrap được phép tải lại **chính package bất biến đó** để tự phục hồi. Nếu checksum remote đổi mà version không đổi, app giữ local snapshot và cảnh báo.
+
 ## R2 layout đề xuất
 
 ```text
@@ -139,7 +165,7 @@ VITE_TRAFFIC_SIGNS_MANIFEST_URL=https://data.example.com/lythuyetlaixe/traffic-s
 ```text
 traffic-signs/manifest.json
         ↓
-verify version/source/content SHA-256
+verify version/signCount/source/content SHA-256
         ↓
 traffic-signs.json
         ↓
