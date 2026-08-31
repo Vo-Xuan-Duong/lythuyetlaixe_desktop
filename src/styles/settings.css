@@ -23,6 +23,14 @@
 .danger-button { border: 0; border-radius: 10px; padding: 11px 17px; font-weight: 800; color: white; background: var(--danger); }
 .danger-button:disabled { opacity: .55; }
 .settings-success { margin: 0 0 16px; border: 1px solid #b6dfcd; background: #eefaf4; color: #176a49; border-radius: 12px; padding: 12px 14px; }
+.settings-reminder-grid { display: grid; gap: 0; }
+.settings-toggle-row, .settings-time-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 15px 0; border-top: 1px solid #edf0f4; }
+.settings-toggle-row > div, .settings-time-row > div { display: grid; gap: 4px; }
+.settings-toggle-row span, .settings-time-row span, .settings-reminder-note { color: var(--muted); font-size: 13px; line-height: 1.55; }
+.settings-toggle-row input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--primary); }
+.settings-time-row input[type="time"] { min-width: 130px; padding: 9px 11px; border: 1px solid var(--border); border-radius: 9px; background: white; color: var(--text); }
+.settings-reminder-actions { display: flex; gap: 10px; padding-top: 16px; border-top: 1px solid #edf0f4; }
+.settings-reminder-note { margin: 14px 0 0; }
 
 @media (max-width: 900px) {
   .settings-info-grid, .settings-info-grid.compact { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -33,7 +41,9 @@
   .settings-heading > button { width: 100%; }
   .settings-section { padding: 18px 15px; }
   .settings-info-grid, .settings-info-grid.compact { grid-template-columns: 1fr; }
-  .settings-checksum-list div, .settings-reset-list > div { align-items: stretch; flex-direction: column; }
+  .settings-checksum-list div, .settings-reset-list > div, .settings-toggle-row, .settings-time-row { align-items: stretch; flex-direction: column; }
   .settings-checksum-list dd { text-align: left; }
-  .settings-reset-list button { width: 100%; }
+  .settings-reset-list button, .settings-reminder-actions button { width: 100%; }
+  .settings-time-row input[type="time"] { width: 100%; }
+  .settings-reminder-actions { flex-direction: column; }
 }
