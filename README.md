@@ -2,7 +2,7 @@
 
 Ứng dụng học và thi thử lý thuyết lái xe Việt Nam bằng **Tauri 2 + React + TypeScript + SQLite**, phát triển theo hướng **Windows Desktop trước, Android sau**.
 
-> Application feature layer gần hoàn chỉnh. Production blockers chính còn lại là dữ liệu chính thức đã xác minh, remote storage và local/device verification.
+> Application/data-tooling architecture đã ở mức code-complete. Production còn phụ thuộc dữ liệu chính thức được review, local compile/runtime verification, Cloudflare R2 và installer/device verification.
 
 ## Stack
 
@@ -13,6 +13,7 @@
 - Device preferences qua `@tauri-apps/plugin-store`.
 - Native review reminder qua `@tauri-apps/plugin-notification`.
 - pnpm `10.34.5`.
+- Python + PyMuPDF cho data tooling.
 
 ## Hai dataset production độc lập
 
@@ -30,24 +31,41 @@ TRAFFIC SIGNS
 └── assets: $APPDATA/traffic-sign-assets/<version>/
 ```
 
-Hai dataset có version, checksum, source provenance, update và cache độc lập. Hai bootstrap có thể chạy song song ở startup, nhưng mọi mutation SQLite được serialize qua application write queue để transaction của questions/traffic-signs/progress/exam/reset không xen lẫn nhau.
+Hai dataset có version/checksum/provenance/update/cache độc lập. Bootstrap có thể chạy song song ở startup; SQLite mutation được serialize qua application write queue.
+
+## Feature layer
+
+Đã có code cho:
+
+- học 600 câu theo 6 chủ đề;
+- 60 câu điểm liệt;
+- bookmark/progress/mastery/spaced review;
+- due/weak/wrong review queues;
+- thi thử theo hạng, timer, critical fail, history và result review;
+- Dashboard/Statistics từ SQLite;
+- Settings, reset user data, runtime diagnostics;
+- kiến thức 5 nhóm biển báo built-in;
+- catalog từng biển remote: search/filter/pagination/detail/image;
+- first-run remote bootstrap, offline fallback, immutable update và self-heal;
+- Windows NSIS foundation;
+- Android config/back/store/notification/build scripts.
 
 ## Tài liệu chính
 
+- Trạng thái hiện tại: [`docs/STATUS.md`](./docs/STATUS.md)
+- Local handoff: [`docs/LOCAL_HANDOFF.md`](./docs/LOCAL_HANDOFF.md)
 - Roadmap: [`KE_HOACH.md`](./KE_HOACH.md)
-- Trạng thái/handoff: [`docs/STATUS.md`](./docs/STATUS.md)
-- Local handoff checklist: [`docs/LOCAL_HANDOFF.md`](./docs/LOCAL_HANDOFF.md)
-- Remote datasets: [`docs/REMOTE_DATASET.md`](./docs/REMOTE_DATASET.md)
+- Remote lifecycle: [`docs/REMOTE_DATASET.md`](./docs/REMOTE_DATASET.md)
 - Cloudflare R2: [`docs/R2_DEPLOYMENT.md`](./docs/R2_DEPLOYMENT.md)
-- Dataset 600 câu: [`tools/dataset/README.md`](./tools/dataset/README.md)
-- Catalog biển báo: [`docs/TRAFFIC_SIGNS.md`](./docs/TRAFFIC_SIGNS.md)
+- 600 câu: [`tools/dataset/README.md`](./tools/dataset/README.md)
+- Biển báo: [`docs/TRAFFIC_SIGNS.md`](./docs/TRAFFIC_SIGNS.md)
 - Windows release: [`docs/LOCAL_RELEASE.md`](./docs/LOCAL_RELEASE.md)
-- Android bring-up: [`docs/ANDROID.md`](./docs/ANDROID.md)
-- Update/version policy: [`docs/UPDATE_STRATEGY.md`](./docs/UPDATE_STRATEGY.md)
+- Android: [`docs/ANDROID.md`](./docs/ANDROID.md)
+- Version/update policy: [`docs/UPDATE_STRATEGY.md`](./docs/UPDATE_STRATEGY.md)
 
 ## GitHub Actions
 
-Workflow validation là **manual-only**. Push/PR không tự chạy test hoặc build; maintainer thực hiện verification local.
+Validation workflow là **manual-only**. Push/PR không tự chạy build/test.
 
 ## Cài dependency local
 
@@ -56,9 +74,9 @@ corepack enable
 pnpm install
 ```
 
-Sau khi dependency graph ổn định, commit `pnpm-lock.yaml` để install reproducible.
+Sau khi dependency graph ổn định, commit `pnpm-lock.yaml`; để Cargo sinh `src-tauri/Cargo.lock` rồi commit lockfile đó.
 
-## Cấu hình remote production
+## Cấu hình production
 
 Tạo `.env.production` từ `.env.example`:
 
@@ -67,69 +85,73 @@ VITE_QUESTIONS_MANIFEST_URL=https://data.example.com/lythuyetlaixe/questions/dat
 VITE_TRAFFIC_SIGNS_MANIFEST_URL=https://data.example.com/lythuyetlaixe/traffic-signs/manifest.json
 ```
 
-`VITE_DATASET_MANIFEST_URL` chỉ còn là compatibility fallback cho bộ 600 câu; deployment mới không nên dùng. Production runtime yêu cầu HTTPS; HTTP chỉ dành cho localhost development.
+Thay `data.example.com` bằng R2 custom domain thật. `VITE_DATASET_MANIFEST_URL` chỉ là compatibility fallback cho questions.
 
-## Bộ 600 câu
-
-Pipeline chính:
+## Pipeline 600 câu
 
 ```powershell
+python -m pip install -r tools/dataset/requirements.txt
 pnpm dataset:prepare:download
 pnpm dataset:status
-# manual answer/image verification
+```
+
+Sau manual answer/image verification:
+
+```powershell
+pnpm dataset:after-answer-review
+# hoàn tất manual image review
 pnpm dataset:finalize
 ```
 
-Output publisher là immutable theo version:
+Output:
 
 ```text
 dist/dataset/
 ├── dataset-manifest.json
-└── releases/
-    └── <version>/
-        ├── questions.json
-        └── assets.zip        # nếu dataset tham chiếu ảnh
+└── releases/<version>/
+    ├── questions.json
+    └── assets.zip
 ```
 
-Runtime:
+Integrity:
 
 ```text
-questions/dataset-manifest.json
-    ↓
-releases/<version>/questions.json → size/SHA-256/provenance/runtime validation
-    ↓
-releases/<version>/assets.zip → bounded verify + safe extract
-    ↓
-$APPDATA/dataset-assets/<version>/
-    ↓
-SQLite transaction
-    ↓
-Learning / Exam / Review / Statistics offline
+sourceSha256  = official CSGT source PDF
+contentSha256 = questions.json
+assetSha256   = assets.zip
 ```
 
-Ba checksum độc lập:
+## Pipeline catalog biển báo
+
+Nguồn production là QCVN 41:2024/BGTVT từ **5 phần Công báo Chính phủ**:
 
 ```text
-sourceSha256  = PDF nguồn chính thức
-contentSha256 = questions.json đã cài
-assetSha256   = assets.zip đã cài
+1359+1360
+1361+1362
+1363+1364
+1365+1366
+1367+1368
 ```
 
-## Catalog biển báo
+`sourceSha256` là canonical hash của đúng 5 part theo thứ tự; PDF ghép chỉ dùng extraction/review và có `combinedSha256` riêng.
 
-Phần kiến thức 5 nhóm cơ bản được bundle trong binary. Catalog từng biển là dataset remote riêng và không phải nguồn đáp án của bộ 600 câu.
-
-Bắt đầu local:
+Workflow:
 
 ```powershell
 pnpm signs:source:download
-pnpm signs:status
+pnpm signs:source:verify -- --reviewer "<name>"
+pnpm signs:candidates:official
+pnpm signs:candidates:images
+pnpm signs:review:prepare
+pnpm signs:review:workspace
 ```
 
-Sau khi đã xây dựng `data/traffic-signs/processed/traffic-signs.json` và ảnh từ nguồn chính thức:
+Review/export `data/traffic-signs/raw/manual-review.json`, sau đó:
 
 ```powershell
-pnpm signs:validate
+pnpm signs:review:images
+pnpm signs:review:workspace
+# xem processed asset, xác nhận imageVerified/record verified
 pnpm signs:finalize
 ```
 
@@ -138,24 +160,12 @@ Output:
 ```text
 dist/traffic-signs/
 ├── manifest.json
-└── releases/
-    └── <version>/
-        ├── traffic-signs.json
-        └── traffic-sign-assets.zip   # nếu có ảnh
+└── releases/<version>/
+    ├── traffic-signs.json
+    └── traffic-sign-assets.zip
 ```
 
-Runtime catalog hỗ trợ search, filter 5 nhóm, pagination và offline cache. Dataset có trust boundary riêng: source/content/asset SHA-256, sign count, bounded download, safe paths và runtime schema validation.
-
-## Kiểm tra data tooling local
-
-```powershell
-pnpm dataset:test
-pnpm signs:test
-# hoặc
-pnpm data:test
-```
-
-Các test source tồn tại trong repo nhưng chỉ được coi là pass sau khi maintainer chạy local.
+Root manifest yêu cầu `sourcePartCount = 5`. Mỗi sign record có source section/pages/reviewer/time; ảnh có source bundle/page/crop provenance riêng.
 
 ## Chạy app
 
@@ -171,9 +181,39 @@ Tauri native:
 pnpm tauri:dev
 ```
 
-Nếu máy chưa có bộ 600 câu local thì `VITE_QUESTIONS_MANIFEST_URL` phải hợp lệ. Catalog biển báo có thể được cài/cập nhật độc lập. Settings và kiến thức 5 nhóm vẫn truy cập được khi questions first-run chưa thành công.
+Nếu questions dataset chưa tồn tại local thì manifest URL questions phải hợp lệ. Traffic-sign dataset lỗi không chặn app; phần kiến thức 5 nhóm built-in và Settings vẫn dùng được.
 
-Settings → **Runtime Diagnostics** kiểm tra riêng endpoint, metadata, checksum và asset cache của hai dataset.
+## Local checks
+
+Các lệnh dưới đây phải do maintainer chạy local:
+
+```powershell
+pnpm release:check
+pnpm build
+pnpm test
+pnpm data:test
+cargo check --manifest-path src-tauri/Cargo.toml
+```
+
+Không coi chúng là PASS cho tới khi thực sự chạy thành công trên máy local.
+
+## Project / release preflight
+
+Sau khi data production và `.env.production` đã có:
+
+```powershell
+pnpm project:status
+```
+
+Báo cáo các blocker static nhưng không fail shell.
+
+Trước release candidate:
+
+```powershell
+pnpm release:candidate:check
+```
+
+Kiểm tra lockfile, hai local production packages, checksum/count/provenance, production URLs và CSP exact origin. Lệnh này không thay compiler/runtime/device tests.
 
 ## Cloudflare R2 layout
 
@@ -187,66 +227,43 @@ lythuyetlaixe/
     └── releases/<version>/...
 ```
 
-Upload versioned payload trước, root manifest cuối cùng. Chi tiết: [`docs/R2_DEPLOYMENT.md`](./docs/R2_DEPLOYMENT.md).
+Upload `releases/<version>/...` trước, verify public HTTPS GET, root manifest sau cùng.
 
-## SQLite và AppData
+Sau khi chốt custom domain, đổi CSP `connect-src` từ generic `https:` sang exact R2 origin.
 
-```text
-SQLite: sqlite:lythuyetlaixe.db
-Question assets:     $APPDATA/dataset-assets/<version>/...
-Traffic-sign assets: $APPDATA/traffic-sign-assets/<version>/...
-Store: settings.json
-```
-
-Update questions giữ progress/bookmark/exam history. Traffic-sign update không chạm các bảng học của questions dataset.
-
-## Windows local release
+## Windows release
 
 ```powershell
 pnpm release:check
+pnpm release:candidate:check
 pnpm release:windows:local
 ```
 
-NSIS output dự kiến dưới:
+NSIS output dự kiến:
 
 ```text
 src-tauri/target/release/bundle/nsis/
 ```
 
-Production CSP hiện cho HTTPS chung vì data host cuối chưa chốt. Trước public release phải scope `connect-src` về đúng R2 custom-domain origin.
+Cần verify Windows 10/11: install, first-run hai dataset, offline, update/self-heal, installer upgrade, preserved user data, uninstall.
 
-## Android local bring-up
+## Android
 
 ```powershell
 pnpm tauri:android:init
 pnpm tauri:android:dev
-```
-
-Build commands:
-
-```powershell
 pnpm tauri:android:build:debug
 pnpm release:android:apk:local
 pnpm release:android:aab:local
 ```
 
-Android vẫn cần device verification cho SQL migration v2, hai AppData asset roots, Store, Back, notifications, first-run/offline/update và signing.
-
-## Versioning
-
-```text
-Application:    0.1.0 → 0.2.0 → 1.0.0
-Questions:      2025.06 → version mới khi bộ câu hỏi thay đổi
-Traffic signs:  version riêng khi catalog/quy chuẩn thay đổi
-```
-
-Mỗi dataset version đã publish là immutable. Publisher local từ chối ghi khác bytes vào release directory của cùng version.
+Android vẫn cần SDK/JDK/NDK, device verification và signing/keystore.
 
 ## Quy tắc dữ liệu
 
-- Source of truth phải là tài liệu chính thức.
-- AI không tự suy đoán đáp án hoặc ý nghĩa production.
-- Hai dataset có provenance/checksum/version riêng.
-- Validator/runtime importer là release/import gates.
-- Root manifest chỉ được publish sau khi toàn bộ versioned payload đã upload.
+- Chỉ source chính thức làm production source of truth.
+- AI không đoán đáp án/ý nghĩa production.
+- Questions và traffic signs có provenance/version/checksum riêng.
+- Dataset version đã publish là immutable.
+- Validator/publisher/runtime importer đều là trust boundary.
 - Catalog biển báo không được dùng để tự suy luận đáp án bộ 600 câu.
