@@ -23,7 +23,13 @@
       }
     ],
     "security": {
-      "csp": null,
+      "csp": {
+        "default-src": "'self' asset:",
+        "connect-src": "'self' ipc: http://ipc.localhost https:",
+        "img-src": "'self' asset: http://asset.localhost blob: data:",
+        "style-src": "'self' 'unsafe-inline'"
+      },
+      "devCsp": null,
       "assetProtocol": {
         "enable": true,
         "scope": ["$APPDATA/dataset-assets/**/*"]
