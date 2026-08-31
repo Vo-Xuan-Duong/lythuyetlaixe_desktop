@@ -8,6 +8,7 @@ import "./styles/question-collection.css";
 import "./styles/exam.css";
 import "./styles/dataset-setup.css";
 import "./styles/review-statistics.css";
+import "./styles/settings.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
