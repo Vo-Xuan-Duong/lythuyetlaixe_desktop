@@ -5,8 +5,16 @@ import path from "node:path";
 import process from "node:process";
 
 const EXPECTED_QUESTION_COUNT = 600;
-const EXPECTED_CRITICAL_COUNT = 60;
 const ALLOWED_IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp"]);
+const ALLOWED_ANSWER_KEYS = new Set(["A", "B", "C", "D"]);
+const SUPPORTED_LICENSES = new Set([
+  "B", "C1", "C", "D1", "D2", "D", "BE", "C1E", "CE", "D1E", "D2E", "DE",
+]);
+const EXPECTED_CRITICAL_IDS = new Set([
+  19,20,21,22,23,24,25,26,27,28,30,32,34,35,47,48,52,53,55,58,63,64,65,66,67,68,
+  70,71,72,73,74,85,86,87,88,89,90,91,92,93,97,98,102,117,163,165,167,197,198,206,
+  215,226,234,245,246,252,253,254,255,260,
+]);
 const CATEGORY_RULES = [
   { code: "GENERAL_RULES", from: 1, to: 180 },
   { code: "CULTURE", from: 181, to: 205 },
@@ -34,6 +42,14 @@ function assert(condition, message) {
 
 function expectedCategory(questionId) {
   return CATEGORY_RULES.find((rule) => questionId >= rule.from && questionId <= rule.to)?.code;
+}
+
+function normalizedSha256(value) {
+  return typeof value === "string" ? value.trim().toLowerCase().replace(/^sha256:/, "") : "";
+}
+
+function isSha256(value) {
+  return /^[a-f0-9]{64}$/.test(normalizedSha256(value));
 }
 
 function normalizedImagePath(value) {
@@ -77,8 +93,9 @@ try {
 }
 
 assert(dataset?.dataset === "VN_GPLX_600", "dataset must equal VN_GPLX_600");
-assert(typeof dataset?.version === "string" && dataset.version.length > 0, "dataset.version is required");
-assert(typeof dataset?.validFrom === "string" && dataset.validFrom.length > 0, "dataset.validFrom is required");
+assert(typeof dataset?.version === "string" && dataset.version.trim().length > 0, "dataset.version is required");
+assert(typeof dataset?.validFrom === "string" && dataset.validFrom.trim().length > 0, "dataset.validFrom is required");
+assert(isSha256(dataset?.sourceSha256), "dataset.sourceSha256 must be the 64-character SHA-256 of the official source PDF");
 assert(Array.isArray(dataset?.questions), "dataset.questions must be an array");
 assert(dataset?.stage === "production", "dataset.stage must equal production before release/import");
 assert(
@@ -119,6 +136,13 @@ for (const question of questions) {
     assert(question.category === category, `${prefix}: expected category ${category}, found ${question.category}`);
   }
 
+  const expectedCritical = EXPECTED_CRITICAL_IDS.has(question.id);
+  assert(
+    question.critical === expectedCritical,
+    `${prefix}: critical flag must be ${expectedCritical ? "true" : "false"}`,
+  );
+  if (question.critical === true) criticalCount += 1;
+
   if (question.needsVerification === true) unresolvedAnswerCount += 1;
   assert(question.needsVerification !== true, `${prefix}: answer still requires manual verification`);
 
@@ -129,14 +153,20 @@ for (const question of questions) {
   if (question.imageNeedsVerification === true) unresolvedImageCount += 1;
   assert(question.imageNeedsVerification !== true, `${prefix}: image still requires manual verification`);
 
-  assert(Array.isArray(question.answers) && question.answers.length >= 2, `${prefix}: at least 2 answers are required`);
+  assert(
+    Array.isArray(question.answers) && question.answers.length >= 2 && question.answers.length <= 4,
+    `${prefix}: expected between 2 and 4 answers`,
+  );
 
   if (Array.isArray(question.answers)) {
     const answerKeys = new Set();
     let correctCount = 0;
 
     for (const answer of question.answers) {
-      assert(typeof answer?.key === "string" && answer.key.length > 0, `${prefix}: answer key is required`);
+      assert(
+        typeof answer?.key === "string" && ALLOWED_ANSWER_KEYS.has(answer.key),
+        `${prefix}: answer key must be A, B, C or D`,
+      );
       assert(!answerKeys.has(answer?.key), `${prefix}: duplicated answer key ${answer?.key}`);
       answerKeys.add(answer?.key);
       assert(typeof answer?.content === "string" && answer.content.trim().length > 0, `${prefix}: answer content is required`);
@@ -148,9 +178,16 @@ for (const question of questions) {
   }
 
   assert(Array.isArray(question.licenses) && question.licenses.length > 0, `${prefix}: licenses must not be empty`);
-  assert(typeof question.sourceVersion === "string" && question.sourceVersion.length > 0, `${prefix}: sourceVersion is required`);
+  if (Array.isArray(question.licenses)) {
+    const licenses = new Set();
+    for (const license of question.licenses) {
+      assert(typeof license === "string" && SUPPORTED_LICENSES.has(license), `${prefix}: unsupported license ${String(license)}`);
+      assert(!licenses.has(license), `${prefix}: duplicated license ${String(license)}`);
+      licenses.add(license);
+    }
+  }
 
-  if (question.critical === true) criticalCount += 1;
+  assert(typeof question.sourceVersion === "string" && question.sourceVersion.trim().length > 0, `${prefix}: sourceVersion is required`);
 
   if (question.image !== undefined && question.image !== null && question.image !== "") {
     const safeImagePath = normalizedImagePath(question.image);
@@ -166,8 +203,8 @@ for (let id = 1; id <= EXPECTED_QUESTION_COUNT; id += 1) {
 }
 
 assert(
-  criticalCount === EXPECTED_CRITICAL_COUNT,
-  `expected ${EXPECTED_CRITICAL_COUNT} critical questions, found ${criticalCount}`,
+  criticalCount === EXPECTED_CRITICAL_IDS.size,
+  `expected ${EXPECTED_CRITICAL_IDS.size} critical questions, found ${criticalCount}`,
 );
 assert(unresolvedAnswerCount === 0, `expected 0 unresolved answers, found ${unresolvedAnswerCount}`);
 assert(unresolvedImageCount === 0, `expected 0 unresolved images, found ${unresolvedImageCount}`);
@@ -188,5 +225,6 @@ console.log(`- Questions: ${questions.length}`);
 console.log(`- Critical questions: ${criticalCount}`);
 console.log(`- Unresolved answers: ${unresolvedAnswerCount}`);
 console.log(`- Unresolved images: ${unresolvedImageCount}`);
+console.log(`- Source PDF SHA-256: ${normalizedSha256(dataset.sourceSha256)}`);
 console.log(`- Version: ${dataset.version}`);
 console.log(`- Valid from: ${dataset.validFrom}`);
