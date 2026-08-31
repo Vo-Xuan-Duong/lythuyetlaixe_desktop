@@ -13,6 +13,7 @@ const ASSET_ROOT = "dataset-assets";
 const MAX_ASSET_FILES = 2_000;
 const MAX_UNCOMPRESSED_BYTES = 128 * 1024 * 1024;
 const ALLOWED_IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp"]);
+const resolvedUrlCache = new Map<string, Promise<string>>();
 
 function sanitizeRelativePath(value: string): string {
   const normalized = value.replaceAll("\\", "/").replace(/^\.\//, "");
@@ -114,6 +115,10 @@ export async function installAssetArchive(
     throw error;
   }
 
+  for (const key of [...resolvedUrlCache.keys()]) {
+    if (key.startsWith(`${safeVersion}:`)) resolvedUrlCache.delete(key);
+  }
+
   return {
     version: safeVersion,
     fileCount: files.length,
@@ -121,15 +126,19 @@ export async function installAssetArchive(
   };
 }
 
-export async function resolveAssetUrl(version: string, imagePath: string): Promise<string> {
+export function resolveAssetUrl(version: string, imagePath: string): Promise<string> {
   const safeVersion = sanitizeRelativePath(version);
   const safeImagePath = sanitizeRelativePath(imagePath);
-  const relativePath = `${ASSET_ROOT}/${safeVersion}/${safeImagePath}`;
+  const key = `${safeVersion}:${safeImagePath}`;
+  const cached = resolvedUrlCache.get(key);
+  if (cached) return cached;
 
-  if (!(await exists(relativePath, { baseDir: BaseDirectory.AppData }))) {
-    throw new Error(`Missing local asset: ${safeImagePath}`);
-  }
+  const resolved = (async () => {
+    const relativePath = `${ASSET_ROOT}/${safeVersion}/${safeImagePath}`;
+    const absolutePath = await join(await appDataDir(), relativePath);
+    return convertFileSrc(absolutePath);
+  })();
 
-  const absolutePath = await join(await appDataDir(), relativePath);
-  return convertFileSrc(absolutePath);
+  resolvedUrlCache.set(key, resolved);
+  return resolved;
 }
