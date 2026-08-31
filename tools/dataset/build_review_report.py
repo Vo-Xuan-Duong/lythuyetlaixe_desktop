@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,7 @@ DEFAULT_IMAGE_REVIEW = ROOT / "data" / "raw" / "image-review.json"
 DEFAULT_IMAGE_DATASET = ROOT / "data" / "raw" / "questions.with-images.json"
 DEFAULT_ASSETS = ROOT / "data" / "processed" / "assets"
 DEFAULT_OUTPUT = ROOT / "data" / "raw" / "review-workspace.html"
+VISUAL_SENSITIVE_CATEGORIES = {"ROAD_SIGNS", "SITUATIONS"}
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -80,11 +82,46 @@ def asset_preview(image_path: str | None, output: Path, assets_root: Path) -> st
     asset = assets_root / image_path
     if not asset.is_file():
         return f'<span class="muted">Asset chưa tồn tại: {esc(image_path)}</span>'
-    try:
-        relative = asset.relative_to(output.parent)
-    except ValueError:
-        relative = Path("../../processed/assets") / image_path
-    return f'<img class="preview" src="{esc(relative.as_posix())}" alt="{esc(image_path)}" />'
+    relative = Path(os.path.relpath(asset, start=output.parent)).as_posix()
+    return f'<img class="preview" src="{esc(relative)}" alt="{esc(image_path)}" />'
+
+
+def dataset_question_map(image_dataset: dict[str, Any]) -> dict[int, dict[str, Any]]:
+    result: dict[int, dict[str, Any]] = {}
+    rows = image_dataset.get("questions")
+    if not isinstance(rows, list):
+        return result
+    for row in rows:
+        if isinstance(row, dict) and isinstance(row.get("id"), int):
+            result[int(row["id"])] = row
+    return result
+
+
+def image_requires_manual_review(item: dict[str, Any], dataset_row: dict[str, Any] | None) -> bool:
+    status = str(item.get("status") or "unknown")
+    image = dataset_row.get("image") if dataset_row else item.get("image")
+    category = dataset_row.get("category") if dataset_row else None
+    return (
+        category in VISUAL_SENSITIVE_CATEGORIES
+        or (isinstance(image, str) and bool(image))
+        or status == "review"
+    )
+
+
+def image_review_count(review_payload: dict[str, Any], image_dataset: dict[str, Any]) -> int:
+    rows = review_payload.get("questions")
+    if not isinstance(rows, list):
+        return 0
+    dataset_by_id = dataset_question_map(image_dataset)
+    return sum(
+        1
+        for item in rows
+        if isinstance(item, dict)
+        and image_requires_manual_review(
+            item,
+            dataset_by_id.get(int(item.get("questionId", 0) or 0)),
+        )
+    )
 
 
 def image_cards(
@@ -93,15 +130,7 @@ def image_cards(
     output: Path,
     assets_root: Path,
 ) -> str:
-    image_by_question: dict[int, str | None] = {}
-    dataset_rows = image_dataset.get("questions")
-    if isinstance(dataset_rows, list):
-        for row in dataset_rows:
-            if not isinstance(row, dict) or not isinstance(row.get("id"), int):
-                continue
-            image = row.get("image")
-            image_by_question[int(row["id"])] = image if isinstance(image, str) else None
-
+    dataset_by_id = dataset_question_map(image_dataset)
     items = review_payload.get("questions")
     if not isinstance(items, list) or not items:
         return '<div class="empty">Chưa có image-review report.</div>'
@@ -110,10 +139,13 @@ def image_cards(
     for item in items:
         if not isinstance(item, dict):
             continue
-        status = str(item.get("status") or "unknown")
-        if status == "none" and not item.get("image"):
-            continue
         question_id = int(item.get("questionId", 0) or 0)
+        dataset_row = dataset_by_id.get(question_id)
+        if not image_requires_manual_review(item, dataset_row):
+            continue
+
+        status = str(item.get("status") or "unknown")
+        category = dataset_row.get("category") if dataset_row else "—"
         candidates = item.get("candidates") if isinstance(item.get("candidates"), list) else []
         candidate_rows = "".join(
             f"<tr><td>{esc(candidate.get('page'))}</td><td><code>{esc(candidate.get('crop'))}</code></td>"
@@ -121,9 +153,8 @@ def image_cards(
             for candidate in candidates
             if isinstance(candidate, dict)
         ) or '<tr><td colspan="4" class="muted">Không có candidate crop.</td></tr>'
-        image_path = image_by_question.get(question_id) or (
-            item.get("image") if isinstance(item.get("image"), str) else None
-        )
+        image = dataset_row.get("image") if dataset_row else item.get("image")
+        image_path = image if isinstance(image, str) else None
         cards.append(
             f"""
             <article class="card" id="image-{question_id}">
@@ -131,7 +162,7 @@ def image_cards(
                 <h3>Câu {question_id}</h3>
                 <span class="status {esc(status)}">{esc(status)}</span>
               </div>
-              <p>Source page: <strong>{esc(item.get('sourcePage') or '—')}</strong></p>
+              <p>Category: <strong>{esc(category)}</strong> · Source page: <strong>{esc(item.get('sourcePage') or '—')}</strong></p>
               <p class="reason">{esc(item.get('reason') or '')}</p>
               <div class="image-grid">
                 <div>{asset_preview(image_path, output, assets_root)}</div>
@@ -142,16 +173,16 @@ def image_cards(
                   </table>
                 </div>
               </div>
-              <p class="hint">Ghi quyết định vào <code>data/source/manual-image-review.json</code>; không approve ảnh nếu crop chứa answer text/underline.</p>
+              <p class="hint">Ghi quyết định vào <code>data/source/manual-image-review.json</code>. Với ROAD_SIGNS/SITUATIONS phải review explicit kể cả khi action cuối là <code>none</code>. Không approve crop chứa answer text/underline.</p>
             </article>
             """
         )
-    return "\n".join(cards) or '<div class="empty">Không có image item cần xem trong report hiện tại.</div>'
+    return "\n".join(cards) or '<div class="empty">Không có image item cần manual review trong report hiện tại.</div>'
 
 
 def build_html(answer_payload: dict[str, Any], image_payload: dict[str, Any], image_dataset: dict[str, Any], output: Path, assets_root: Path) -> str:
     answer_count = int(answer_payload.get("unresolvedCount", 0) or 0)
-    image_count = int(image_payload.get("needsReview", 0) or 0)
+    image_count = image_review_count(image_payload, image_dataset)
     return f"""<!doctype html>
 <html lang="vi">
 <head>
@@ -182,7 +213,7 @@ table {{ width:100%; border-collapse:collapse; font-size:13px; }} th,td {{ paddi
 <header>
   <h1>Dataset manual review workspace</h1>
   <p>Trang này chỉ để đối chiếu. Không có nút tự xác nhận đáp án/hình ảnh và không thay đổi dataset.</p>
-  <div class="summary"><span>Answer unresolved: {answer_count}</span><span>Image review: {image_count}</span></div>
+  <div class="summary"><span>Answer unresolved: {answer_count}</span><span>Image manual review: {image_count}</span></div>
   <p class="warning">Nguồn quyết định cuối cùng phải là PDF chính thức; AI/semantic guess không được dùng để điền đáp án.</p>
 </header>
 <section><h2>Answer review</h2>{answer_cards(answer_payload)}</section>
