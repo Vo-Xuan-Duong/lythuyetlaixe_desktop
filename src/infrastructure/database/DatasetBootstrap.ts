@@ -1,5 +1,6 @@
 import { isTauri } from "@tauri-apps/api/core";
 import {
+  hasAssetVersion,
   installAssetArchive,
   removeAssetVersion,
 } from "../assets/RemoteAssetStore";
@@ -103,8 +104,16 @@ export async function bootstrapDataset(): Promise<DatasetBootstrapStatus> {
       normalizedSha256(localState.contentSha256) === normalizedSha256(manifest.sha256);
     const remoteAssetSha256 = manifest.assets ? normalizedSha256(manifest.assets.sha256) : "";
     const sameAssetChecksum = normalizedSha256(localState.assetSha256) === remoteAssetSha256;
+    const assetsInstalled = manifest.assets
+      ? await hasAssetVersion(manifest.version)
+      : true;
 
-    if (sameVersion && sameDatasetChecksum && sameAssetChecksum) {
+    if (
+      sameVersion &&
+      sameDatasetChecksum &&
+      sameAssetChecksum &&
+      assetsInstalled
+    ) {
       return {
         state: "ready",
         version: manifest.version,
@@ -113,6 +122,8 @@ export async function bootstrapDataset(): Promise<DatasetBootstrapStatus> {
       };
     }
 
+    // Immutable version mismatch is not self-healed: different bytes under the
+    // same version must be published as a new version.
     if (sameVersion && !legacyProvenanceMatches && (!sameDatasetChecksum || !sameAssetChecksum)) {
       return {
         state: "ready",
@@ -123,6 +134,12 @@ export async function bootstrapDataset(): Promise<DatasetBootstrapStatus> {
           "Package 600 câu remote đã thay đổi nhưng không tăng version, hoặc local package chưa có checksum/provenance đủ để xác minh. Ứng dụng giữ nguyên version local để bảo toàn tính bất biến.",
       };
     }
+
+    // If metadata/checksums still identify the same immutable package but its
+    // AppData asset directory was removed, re-download the verified package to
+    // restore the local cache without requiring a new dataset version.
+    const selfHealingAssets =
+      sameVersion && sameDatasetChecksum && sameAssetChecksum && !assetsInstalled;
 
     const dataset = await downloadDataset(manifest);
     const requiresAssets = dataset.questions.some((question) => Boolean(question.image));
@@ -169,9 +186,11 @@ export async function bootstrapDataset(): Promise<DatasetBootstrapStatus> {
       version: result.version,
       importStatus: result.status,
       source: "remote",
-      warning: legacyProvenanceMatches
-        ? "Đã revalidate package 600 câu local legacy và bổ sung content checksum."
-        : undefined,
+      warning: selfHealingAssets
+        ? "Đã tự phục hồi cache ảnh 600 câu từ package cùng version đã xác minh."
+        : legacyProvenanceMatches
+          ? "Đã revalidate package 600 câu local legacy và bổ sung content checksum."
+          : undefined,
     };
   } catch (error) {
     if (pendingAssetVersion) {
