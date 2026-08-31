@@ -1,4 +1,7 @@
-import type { TrafficSignsDataset } from "../../domain/entities/trafficSign";
+import {
+  MAX_TRAFFIC_SIGN_COUNT,
+  type TrafficSignsDataset,
+} from "../../domain/entities/trafficSign";
 
 export interface RemoteTrafficSignsAssetPackage {
   url: string;
@@ -25,7 +28,6 @@ export interface RemoteTrafficSignsManifest {
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_MANIFEST_BYTES = 128 * 1024;
 const MAX_DATASET_BYTES = 8 * 1024 * 1024;
-export const MAX_TRAFFIC_SIGN_COUNT = 2_000;
 export const MAX_TRAFFIC_SIGN_ASSET_BYTES = 64 * 1024 * 1024;
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
 const VERSION_RE = /^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$/;
