@@ -14,19 +14,19 @@ pnpm install
 
 Sau khi dependency graph ổn định, commit `pnpm-lock.yaml`. Không tạo lockfile thủ công.
 
-## 2. Compile / unit checks local
+## 2. Compile / checks local
 
 ```powershell
 pnpm release:check
 pnpm build
 pnpm test
 cargo check --manifest-path src-tauri/Cargo.toml
-pnpm dataset:test
+pnpm data:test
 ```
 
-Các plugin native cần chú ý: SQL, FS, Store, Notification.
+`data:test` gồm test source của question publisher và traffic-sign publisher; repo không tự chạy các lệnh này.
 
-## 3. Hai remote dataset
+## 3. Hai dataset remote
 
 ```text
 QUESTIONS
@@ -40,9 +40,9 @@ TRAFFIC SIGNS
   assets: $APPDATA/traffic-sign-assets/<version>/
 ```
 
-Hai package có source/content/asset SHA-256 riêng và update độc lập.
+Hai package có source/content/asset SHA-256 riêng. Traffic-sign manifest còn có `signCount` bắt buộc.
 
-Traffic-sign manifest còn có `signCount` bắt buộc để phát hiện catalog local thiếu record.
+SQLite dùng một application-level write queue. Khi verify runtime, cần chú ý không xuất hiện lỗi transaction/database lock khi startup bootstrap hai dataset đồng thời với progress/exam/settings mutations.
 
 ## 4. Hoàn thiện bộ 600 câu
 
@@ -52,14 +52,14 @@ pnpm dataset:prepare:download
 pnpm dataset:status
 ```
 
-Yêu cầu trước promotion:
+Trước promotion:
 
 - parse đủ 600 câu;
-- manual answer unresolved = 0;
-- manual image unresolved = 0;
+- answer unresolved = 0 sau manual review;
+- image unresolved = 0 sau manual review;
 - provenance nguồn đầy đủ.
 
-Manual answer review:
+Manual answer file:
 
 ```text
 data/source/manual-answer-review.json
@@ -89,61 +89,81 @@ Final:
 pnpm dataset:finalize
 ```
 
-## 5. Hoàn thiện catalog biển báo
-
-Catalog từng biển **chưa được điền tự động**. Chỉ thêm record khi đã đối chiếu quy chuẩn/tài liệu chính thức.
-
-Workspace:
+Expected output:
 
 ```text
-data/traffic-signs/
-├── source/
-└── processed/
-    ├── traffic-signs.json
-    └── assets/
-        └── signs/...
+dist/dataset/
+├── dataset-manifest.json
+└── releases/<version>/
+    ├── questions.json
+    └── assets.zip
 ```
 
-Validate/publish:
+## 5. Hoàn thiện catalog biển báo
+
+Catalog từng biển chưa được tự suy diễn. Chỉ tạo production record sau khi đối chiếu tài liệu chính thức.
+
+Tải/hash source đã khai báo:
+
+```powershell
+pnpm signs:source:download
+pnpm signs:status
+```
+
+Workspace generated:
+
+```text
+data/traffic-signs/processed/
+├── traffic-signs.json
+└── assets/
+    └── signs/...
+```
+
+Sau khi dữ liệu và ảnh đã verified:
 
 ```powershell
 pnpm signs:validate
-pnpm signs:publish
+pnpm signs:finalize
 ```
 
-Output:
+Expected output:
 
 ```text
 dist/traffic-signs/
 ├── manifest.json
-├── traffic-signs.json
-└── traffic-sign-assets.zip
+└── releases/<version>/
+    ├── traffic-signs.json
+    └── traffic-sign-assets.zip
 ```
 
 Schema/contract: [`TRAFFIC_SIGNS.md`](./TRAFFIC_SIGNS.md).
 
-## 6. Production endpoint / Cloudflare R2
+## 6. Cloudflare R2
 
-Tạo `.env.production`:
+`.env.production`:
 
 ```env
 VITE_QUESTIONS_MANIFEST_URL=https://<production-host>/lythuyetlaixe/questions/dataset-manifest.json
 VITE_TRAFFIC_SIGNS_MANIFEST_URL=https://<production-host>/lythuyetlaixe/traffic-signs/manifest.json
 ```
 
-R2 layout đề xuất:
+Target:
 
 ```text
 lythuyetlaixe/
 ├── questions/
-│   └── ...
+│   ├── dataset-manifest.json
+│   └── releases/<version>/...
 └── traffic-signs/
-    └── ...
+    ├── manifest.json
+    └── releases/<version>/...
 ```
 
-Host cần CORS GET/HEAD cho WebView. Khi domain được chốt, đổi CSP `connect-src ... https:` thành đúng production origin.
+For each dataset: upload versioned payload first, verify public HTTPS GET, then upload root manifest last. Host needs read-only CORS for the current Web Fetch transport.
 
-Cho từng dataset, upload payload trước và manifest cuối cùng.
+After final host is selected, scope CSP `connect-src` from generic `https:` to the exact origin.
+
+Detailed deployment: [`R2_DEPLOYMENT.md`](./R2_DEPLOYMENT.md).
 
 ## 7. Tauri runtime verification
 
@@ -151,33 +171,34 @@ Cho từng dataset, upload payload trước và manifest cuối cùng.
 pnpm tauri:dev
 ```
 
-### 600 câu
+### Questions
 
-1. DB sạch → first-run tải question manifest/questions/assets.
-2. SQLite đúng 600 câu và 60 câu điểm liệt.
-3. Ảnh câu hỏi hiển thị.
-4. Tắt mạng → học/thi vẫn hoạt động.
-5. Version mới → giữ progress/bookmark/exam history.
-6. Update lỗi → giữ version cũ.
-7. Same version + checksum khác → không overwrite.
-8. Xóa local asset directory nhưng giữ metadata → app tự tải lại package cùng version để phục hồi cache.
+1. Clean AppData → first-run downloads manifest/questions/assets.
+2. SQLite contains exactly 600 questions and 60 critical questions.
+3. Images display from `$APPDATA/dataset-assets/<version>/`.
+4. Offline restart still supports Learning/Exam/Review.
+5. New question version preserves progress/bookmark/exam history.
+6. Broken update keeps previous version.
+7. Same version + changed checksum is rejected.
+8. Deleting asset directory while keeping valid metadata causes self-heal from the same immutable package.
 
-### Biển báo
+### Traffic signs
 
-1. `VITE_TRAFFIC_SIGNS_MANIFEST_URL` độc lập với questions URL.
-2. App startup kiểm tra/tải catalog nền, không đợi người dùng mở trang Biển báo.
-3. First-run import `traffic_signs` không chạm `questions`.
-4. Search/filter từng biển hoạt động.
-5. Ảnh đọc từ `$APPDATA/traffic-sign-assets/<version>/`.
-6. Tắt mạng → catalog vẫn hoạt động.
-7. Update traffic-sign version không làm reload/reset 600 câu.
-8. Update question version không làm xóa traffic-sign catalog.
-9. Thiếu row hoặc asset cache nhưng cùng immutable checksum/version → app tự tải lại package để phục hồi.
+1. Startup bootstrap runs independently from questions.
+2. First-run import creates/uses migration-v2 `traffic_sign_metadata` + `traffic_signs`.
+3. Search/filter/pagination work against SQLite.
+4. Images display from `$APPDATA/traffic-sign-assets/<version>/`.
+5. Offline restart keeps catalog available.
+6. Updating signs does not reload/reset questions.
+7. Updating questions does not remove signs.
+8. Missing sign rows/assets with same valid package identity self-heal.
+9. Same version + changed checksum is rejected.
 
-### Chung
+### Concurrency / user data
 
-- Settings → Runtime Diagnostics kiểm tra riêng hai endpoint/dataset.
-- Reset user progress không xóa bất kỳ production dataset nào.
+While both bootstraps are active, exercise bookmark/progress/exam/settings reset paths and verify no nested/interleaved transaction errors. Reset user data must not delete either production dataset.
+
+Run **Settings → Runtime Diagnostics** after first-run and after offline restart.
 
 ## 8. Windows release candidate
 
@@ -186,7 +207,7 @@ pnpm release:check
 pnpm release:windows:local
 ```
 
-Kiểm tra Windows 10/11: install, first launch, persistence, notification, installer upgrade và dữ liệu sau upgrade.
+Verify Windows 10/11: install, first launch, both dataset downloads, offline persistence, notification, installer upgrade, preserved user data and uninstall policy.
 
 ## 9. Android bring-up
 
@@ -195,7 +216,7 @@ pnpm tauri:android:init
 pnpm tauri:android:dev
 ```
 
-Verify SQL migration v2, hai AppData asset root, Store, first-run/offline, Android Back, notification và responsive/touch.
+Verify SQL migration v2, both AppData asset roots, Store, first-run/offline, native Back, notification and responsive/touch.
 
 ```powershell
 pnpm tauri:android:build:debug
@@ -203,47 +224,47 @@ pnpm release:android:apk:local
 pnpm release:android:aab:local
 ```
 
-Release APK/AAB cần signing/keystore.
+Release APK/AAB still needs signing/keystore.
 
-## 10. Blockers còn lại
+## 10. Remaining blockers
 
 ### DATA
 
-- production 600-question dataset;
-- manual unresolved answers/images;
-- production traffic-sign catalog từng biển;
-- ảnh biển báo có provenance;
-- explanation đáng tin cậy.
+- verified production 600-question package;
+- manual unresolved answer/image work;
+- verified production traffic-sign catalog and images;
+- trusted explanation content if included.
 
 ### DEPLOYMENT
 
-- production R2/custom domain;
+- R2 bucket/custom domain;
 - CORS;
-- CSP exact origin.
+- exact production CSP origin.
 
 ### LOCAL / DEVICE VERIFY
 
-- frontend/Rust/plugin build;
-- SQLite migration v2;
-- first-run/update/offline của cả hai dataset;
-- Windows NSIS;
+- frontend/Vitest/Rust/plugin build;
+- SQLite migration v2 + write queue behavior;
+- first-run/update/offline/self-heal of both datasets;
+- NSIS Windows;
 - Android APK/AAB;
 - notification scheduling.
 
-### OPTIONAL SAU 1.0
+### OPTIONAL AFTER 1.0
 
 - signed manifests;
-- Windows code signing;
+- Windows code signing depending on channel;
 - binary auto-updater;
 - cloud sync/account/conflict resolution.
 
-## Definition of Desktop release candidate
+## Desktop release-candidate definition
 
 ```text
 600 questions verified + published
-+ traffic-sign catalog verified + published (nếu đưa vào 1.0)
-+ two-manifest first-run/offline/update verified
-+ frontend/Rust checks pass local
-+ Runtime Diagnostics sạch lỗi production
++ traffic signs verified + published (if included in 1.0)
++ versioned two-manifest R2 deployment
++ first-run/offline/update/self-heal verified
++ frontend/Rust/data checks pass local
++ Runtime Diagnostics has no unexplained production failures
 + NSIS install/upgrade verified
 ```
