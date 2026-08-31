@@ -39,6 +39,7 @@ input, textarea, select, button {{ font: inherit; }}
 .toolbar input, .toolbar select {{ padding: 9px 11px; border: 1px solid #cfd7e4; border-radius: 9px; background: white; }}
 button {{ border: 1px solid #bec9dc; border-radius: 9px; padding: 9px 13px; background: white; cursor: pointer; font-weight: 700; }}
 button.primary {{ background: #2056d7; border-color: #2056d7; color: white; }}
+button.danger {{ color: #a72b2b; }}
 main {{ max-width: 1500px; margin: 0 auto; padding: 20px; display: grid; gap: 14px; }}
 .summary {{ display: flex; gap: 12px; flex-wrap: wrap; }} .summary span {{ background: white; border: 1px solid #dfe5ee; border-radius: 999px; padding: 7px 11px; }}
 .card {{ background: white; border: 1px solid #dfe5ee; border-radius: 14px; padding: 16px; display: grid; gap: 14px; margin-bottom: 14px; }}
@@ -53,14 +54,23 @@ label textarea {{ min-height: 88px; resize: vertical; }}
 .candidate {{ white-space: pre-wrap; overflow-wrap: anywhere; background: #f7f9fc; border: 1px solid #e5eaf1; border-radius: 10px; padding: 12px; line-height: 1.55; }}
 .candidate strong {{ display: block; margin-bottom: 6px; }}
 .flags {{ display: flex; gap: 18px; flex-wrap: wrap; }} .flags label {{ display: flex; align-items: center; gap: 7px; color: #172033; font-size: 13px; }}
-.preview {{ max-width: 180px; max-height: 140px; object-fit: contain; border: 1px solid #dfe5ee; border-radius: 10px; padding: 7px; background: #f7f9fc; }}
+.preview {{ max-width: 220px; max-height: 170px; object-fit: contain; border: 1px solid #dfe5ee; border-radius: 10px; padding: 7px; background: #f7f9fc; }}
+.image-review {{ border: 1px solid #dfe5ee; border-radius: 12px; padding: 12px; display: grid; gap: 10px; }}
+.image-review h3 {{ margin: 0; font-size: 14px; }}
+.image-gallery {{ display: grid; grid-template-columns: repeat(auto-fill,minmax(190px,1fr)); gap: 10px; }}
+.image-option {{ border: 2px solid #dfe5ee; border-radius: 12px; padding: 9px; background: #fff; display: grid; gap: 8px; text-align: left; cursor: pointer; }}
+.image-option.selected {{ border-color: #2056d7; box-shadow: 0 0 0 2px rgba(32,86,215,.12); }}
+.image-option img {{ width: 100%; height: 150px; object-fit: contain; background: #f7f9fc; border-radius: 8px; }}
+.image-meta {{ font-size: 11px; color: #657086; overflow-wrap: anywhere; }}
+.selection-row {{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }}
+.selection-chip {{ font-size:12px; background:#eef3ff; color:#204ba8; border-radius:999px; padding:6px 9px; }}
 @media(max-width:760px) {{ .grid {{ grid-template-columns:1fr; }} label.full {{ grid-column:auto; }} .card-head {{ flex-direction:column; }} }}
 </style>
 </head>
 <body>
 <header>
   <h1>Traffic-sign manual review</h1>
-  <div class="muted">Nguồn: {title}. Candidate chỉ là ngữ cảnh; chỉ export record đã được người review xác minh.</div>
+  <div class="muted">Nguồn: {title}. Candidate text/ảnh chỉ là ngữ cảnh. Production chỉ nhận record đã verify và ảnh được xác nhận riêng.</div>
   <div class="toolbar">
     <input id="search" type="search" placeholder="Tìm mã / tên / nội dung...">
     <select id="group"><option value="">Tất cả nhóm</option><option>PROHIBITION</option><option>WARNING</option><option>MANDATORY</option><option>INDICATION</option><option>SUPPLEMENTARY</option></select>
@@ -109,6 +119,32 @@ function pagesField(record, index) {{
   wrapper.append(caption, input); return wrapper;
 }}
 function summaryChip(text) {{ const span=document.createElement('span'); span.textContent=text; summary.appendChild(span); }}
+function renderImageReview(record, index) {{
+  const panel = document.createElement('div'); panel.className='image-review';
+  const title = document.createElement('h3'); title.textContent='Ảnh candidate từ QCVN chính thức'; panel.appendChild(title);
+  const candidates = Array.isArray(record.candidateImages) ? record.candidateImages : [];
+  if (candidates.length === 0) {{
+    const empty=document.createElement('div'); empty.className='muted'; empty.textContent='Không có image candidate tự động cho section này. Nếu biển cần ảnh, phải thêm/crop thủ công rồi ghi provenance.'; panel.appendChild(empty); return panel;
+  }}
+  const selectionRow=document.createElement('div'); selectionRow.className='selection-row';
+  const chip=document.createElement('span'); chip.className='selection-chip'; chip.textContent=record.selectedImageCandidate ? `Đã chọn: ${{record.selectedImageCandidate}}` : 'Chưa chọn ảnh'; selectionRow.appendChild(chip);
+  if (record.selectedImageCandidate) {{
+    const clear=document.createElement('button'); clear.type='button'; clear.className='danger'; clear.textContent='Bỏ chọn'; clear.addEventListener('click',()=>{{record.selectedImageCandidate=null; record.image=null; record.imageVerified=false; render();}}); selectionRow.appendChild(clear);
+  }}
+  panel.appendChild(selectionRow);
+  const gallery=document.createElement('div'); gallery.className='image-gallery';
+  candidates.forEach(candidate=>{{
+    if (!candidate || typeof candidate.file !== 'string') return;
+    const option=document.createElement('button'); option.type='button'; option.className='image-option';
+    if (record.selectedImageCandidate===candidate.file) option.classList.add('selected');
+    const img=document.createElement('img'); img.src=candidate.file; img.alt=`Candidate ${{record.code}}`;
+    const meta=document.createElement('div'); meta.className='image-meta'; meta.textContent=`${{candidate.file}} · page ${{candidate.page ?? '-'}} · ${{candidate.status ?? 'candidate'}}`;
+    option.append(img,meta);
+    option.addEventListener('click',()=>{{record.selectedImageCandidate=candidate.file; record.imageVerified=false; render();}});
+    gallery.appendChild(option);
+  }});
+  panel.appendChild(gallery); return panel;
+}}
 function render() {{
   cards.replaceChildren();
   const q = search.value.trim().toLowerCase();
@@ -130,11 +166,11 @@ function render() {{
 
     const flags = document.createElement('div'); flags.className='flags';
     const verifiedLabel=document.createElement('label'); const verified=document.createElement('input'); verified.type='checkbox'; verified.checked=record.verified===true; verified.addEventListener('change',()=>{{record.verified=verified.checked; render();}}); verifiedLabel.append(verified,document.createTextNode(' Record verified'));
-    const imageLabel=document.createElement('label'); const imageVerified=document.createElement('input'); imageVerified.type='checkbox'; imageVerified.checked=record.imageVerified===true; imageVerified.addEventListener('change',()=>record.imageVerified=imageVerified.checked); imageLabel.append(imageVerified,document.createTextNode(' Image verified'));
+    const imageLabel=document.createElement('label'); const imageVerified=document.createElement('input'); imageVerified.type='checkbox'; imageVerified.checked=record.imageVerified===true; imageVerified.disabled=!record.image; imageVerified.addEventListener('change',()=>record.imageVerified=imageVerified.checked); imageLabel.append(imageVerified,document.createTextNode(' Image verified'));
     flags.append(verifiedLabel,imageLabel); head.appendChild(flags); card.appendChild(head);
 
     const grid=document.createElement('div'); grid.className='grid';
-    grid.append(scalarField('Tên biển',record.name,'name',index), scalarField('Đường dẫn ảnh',record.image,'image',index));
+    grid.append(scalarField('Tên biển',record.name,'name',index), scalarField('Đường dẫn ảnh processed',record.image,'image',index));
     grid.append(scalarField('Ý nghĩa',record.meaning,'meaning',index,true,true));
     grid.append(scalarField('Nhận biết',record.recognition,'recognition',index,true), scalarField('Phạm vi',record.scope,'scope',index,true));
     grid.append(arrayField('Ngoại lệ - mỗi dòng một mục',record.exceptions,'exceptions',index,true), arrayField('Keywords - mỗi dòng một từ/cụm',record.keywords,'keywords',index,true));
@@ -143,11 +179,15 @@ function render() {{
     grid.append(scalarField('Source section',record.sourceSection,'sourceSection',index), pagesField(record,index));
     card.appendChild(grid);
 
+    card.appendChild(renderImageReview(record,index));
     if (record.image && !record.image.includes('://') && !record.image.startsWith('/')) {{
-      const img=document.createElement('img'); img.className='preview'; img.src=`../processed/assets/${{record.image}}`; img.alt=`${{record.code}} preview`; card.appendChild(img);
+      const processedWrap=document.createElement('div');
+      const processedTitle=document.createElement('strong'); processedTitle.textContent='Processed asset hiện tại';
+      const img=document.createElement('img'); img.className='preview'; img.src=`../processed/assets/${{record.image}}`; img.alt=`${{record.code}} processed preview`;
+      processedWrap.append(processedTitle,document.createElement('br'),img); card.appendChild(processedWrap);
     }}
     const candidate=document.createElement('div'); candidate.className='candidate';
-    const candidateTitle=document.createElement('strong'); candidateTitle.textContent='Candidate context - không tự coi là dữ liệu production';
+    const candidateTitle=document.createElement('strong'); candidateTitle.textContent='Candidate text - không tự coi là dữ liệu production';
     const candidateText=document.createElement('span'); candidateText.textContent=`${{record.candidateHeading || ''}}\n${{record.candidateText || ''}}`;
     candidate.append(candidateTitle,candidateText); card.appendChild(candidate);
     cards.appendChild(card);
@@ -156,7 +196,9 @@ function render() {{
   summaryChip(`Hiển thị: ${{shown}}/${{records.length}}`);
   summaryChip(`Verified: ${{records.filter(r=>r.verified===true).length}}`);
   summaryChip(`Pending: ${{records.filter(r=>r.verified!==true).length}}`);
-  summaryChip(`Ảnh pending: ${{records.filter(r=>r.image && r.imageVerified!==true).length}}`);
+  summaryChip(`Có candidate ảnh: ${{records.filter(r=>Array.isArray(r.candidateImages)&&r.candidateImages.length>0).length}}`);
+  summaryChip(`Đã chọn ảnh: ${{records.filter(r=>r.selectedImageCandidate).length}}`);
+  summaryChip(`Ảnh chờ verify: ${{records.filter(r=>r.image && r.imageVerified!==true).length}}`);
 }}
 [search,group,state].forEach(el=>el.addEventListener('input',render));
 document.getElementById('export').addEventListener('click',()=>{{
@@ -171,7 +213,7 @@ render();
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     OUTPUT.write_text(document, encoding="utf-8")
     print(f"[ok] review workspace: {OUTPUT}")
-    print("Open it in a browser, review records, then export manual-review.json back into data/traffic-signs/raw/.")
+    print("Open it in a browser, review records/images, export manual-review.json back into data/traffic-signs/raw/, then run pnpm signs:review:images.")
     return 0
 
 
