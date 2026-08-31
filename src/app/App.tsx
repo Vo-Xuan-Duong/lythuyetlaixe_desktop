@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppShell } from "../components/AppShell";
 import { CriticalPage } from "../features/critical/CriticalPage";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
@@ -9,6 +9,8 @@ import { ReviewPage } from "../features/review/ReviewPage";
 import { DatasetSetupPage } from "../features/setup/DatasetSetupPage";
 import { SettingsPage } from "../features/settings/SettingsPage";
 import { StatisticsPage } from "../features/statistics/StatisticsPage";
+import { restoreReviewReminder } from "../infrastructure/notifications/ReviewReminderService";
+import { getReviewReminderPreference } from "../infrastructure/preferences/AppPreferences";
 import type { AppSection } from "./navigation";
 import { useDatasetBootstrap } from "./useDatasetBootstrap";
 import { useNativeBackHandler } from "./useNativeBackHandler";
@@ -19,6 +21,22 @@ export function App() {
   const [sectionHistory, setSectionHistory] = useState<AppSection[]>(["dashboard"]);
   const { status: datasetStatus, retry: retryDataset } = useDatasetBootstrap();
   const section = sectionHistory[sectionHistory.length - 1] ?? "dashboard";
+
+  useEffect(() => {
+    let active = true;
+    void getReviewReminderPreference()
+      .then((preference) => {
+        if (!active || !preference.enabled) return undefined;
+        return restoreReviewReminder(preference);
+      })
+      .catch(() => {
+        // Reminder restoration is best-effort and must never block app startup.
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const navigate = useCallback((nextSection: AppSection) => {
     setSectionHistory((history) => {
