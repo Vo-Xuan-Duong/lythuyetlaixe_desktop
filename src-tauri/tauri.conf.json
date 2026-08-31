@@ -31,7 +31,15 @@
     }
   },
   "bundle": {
-    "active": false
+    "active": true,
+    "targets": ["nsis"],
+    "publisher": "Vo-Xuan-Duong",
+    "icon": ["icons/icon.ico"],
+    "windows": {
+      "nsis": {
+        "displayLanguageSelector": false
+      }
+    }
   },
   "plugins": {
     "sql": {
