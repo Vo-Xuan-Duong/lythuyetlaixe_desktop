@@ -1,5 +1,6 @@
 import { isTauri } from "@tauri-apps/api/core";
 import {
+  hasTrafficSignAssetVersion,
   installTrafficSignAssetArchive,
   removeTrafficSignAssetVersion,
 } from "../assets/TrafficSignAssetStore";
@@ -67,8 +68,25 @@ export async function bootstrapTrafficSigns(): Promise<TrafficSignsBootstrapStat
     const remoteAssetSha256 = manifest.assets ? normalized(manifest.assets.sha256) : "";
     const sameContent = normalized(localState.contentSha256) === normalized(manifest.sha256);
     const sameAssets = normalized(localState.assetSha256) === remoteAssetSha256;
+    const sameSignCount = localState.signCount === manifest.signCount;
+    const assetsInstalled = manifest.assets
+      ? await hasTrafficSignAssetVersion(manifest.version)
+      : true;
 
-    if (sameVersion && sameContent && sameAssets) {
+    // A published version is immutable. If its package identity changed, never
+    // silently replace the local snapshot with different bytes under the same version.
+    if (sameVersion && (!sameContent || !sameAssets)) {
+      return {
+        state: "ready",
+        version: localState.version!,
+        signCount: localState.signCount,
+        source: "local-cache",
+        importStatus: "up-to-date",
+        warning: "Dataset biển báo remote đã thay đổi checksum nhưng không tăng version. App giữ snapshot local để bảo toàn tính bất biến.",
+      };
+    }
+
+    if (sameVersion && sameContent && sameAssets && sameSignCount && assetsInstalled) {
       return {
         state: "ready",
         version: manifest.version,
@@ -78,16 +96,10 @@ export async function bootstrapTrafficSigns(): Promise<TrafficSignsBootstrapStat
       };
     }
 
-    if (sameVersion && (!sameContent || !sameAssets)) {
-      return {
-        state: "ready",
-        version: localState.version!,
-        signCount: localState.signCount,
-        source: "local-cache",
-        importStatus: "up-to-date",
-        warning: "Dataset biển báo remote đã thay đổi nhưng không tăng version. App giữ snapshot local để bảo toàn tính bất biến.",
-      };
-    }
+    // Same immutable package but damaged local state (missing rows/assets) is
+    // allowed to self-heal by downloading the exact verified package again.
+    const selfHealingSameVersion =
+      sameVersion && sameContent && sameAssets && (!sameSignCount || !assetsInstalled);
 
     const dataset = await downloadTrafficSignsDataset(manifest);
     const requiresAssets = dataset.signs.some((sign) => Boolean(sign.image));
@@ -113,6 +125,7 @@ export async function bootstrapTrafficSigns(): Promise<TrafficSignsBootstrapStat
       result = await new TrafficSignsImporter().import(dataset, {
         contentSha256: manifest.sha256,
         assetSha256: manifest.assets?.sha256 ?? null,
+        force: selfHealingSameVersion && !sameSignCount,
       });
     } catch (error) {
       if (pendingAssetVersion) {
@@ -133,6 +146,9 @@ export async function bootstrapTrafficSigns(): Promise<TrafficSignsBootstrapStat
       signCount: result.signCount,
       source: "remote",
       importStatus: result.status,
+      warning: selfHealingSameVersion
+        ? "Đã tự phục hồi snapshot biển báo local từ package cùng version đã xác minh."
+        : undefined,
     };
   } catch (error) {
     if (pendingAssetVersion) {
