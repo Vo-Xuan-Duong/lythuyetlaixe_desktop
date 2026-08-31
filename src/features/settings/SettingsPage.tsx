@@ -10,6 +10,10 @@ import {
   SqliteSettingsRepository,
   type LocalApplicationInfo,
 } from "../../infrastructure/repositories/SqliteSettingsRepository";
+import {
+  getAppRuntimeInfo,
+  type AppRuntimeInfo,
+} from "../../infrastructure/runtime/AppRuntime";
 
 interface SettingsPageProps {
   datasetStatus: DatasetBootstrapStatus;
@@ -38,12 +42,27 @@ function shortHash(value: string | null): string {
 
 export function SettingsPage({ datasetStatus, onCheckDataset }: SettingsPageProps) {
   const [info, setInfo] = useState<LocalApplicationInfo>();
+  const [runtime, setRuntime] = useState<AppRuntimeInfo>();
   const [loading, setLoading] = useState(false);
   const [resetting, setResetting] = useState<ResetTarget>();
   const [message, setMessage] = useState<string>();
   const [error, setError] = useState<string>();
   const [refreshKey, setRefreshKey] = useState(0);
   const [defaultLicense, setDefaultLicense] = useState<LicenseType>(() => getDefaultExamLicense());
+
+  useEffect(() => {
+    let active = true;
+    void getAppRuntimeInfo()
+      .then((value) => {
+        if (active) setRuntime(value);
+      })
+      .catch((runtimeError) => {
+        if (active) setError(runtimeError instanceof Error ? runtimeError.message : String(runtimeError));
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -117,7 +136,7 @@ export function SettingsPage({ datasetStatus, onCheckDataset }: SettingsPageProp
         <div>
           <span className="eyebrow">Application</span>
           <h1>Cài đặt</h1>
-          <p>Quản lý dataset local, tùy chọn thi và dữ liệu học trên thiết bị. Các thao tác reset không xóa bộ câu hỏi đã tải.</p>
+          <p>Quản lý phiên bản ứng dụng, dataset local, tùy chọn thi và dữ liệu học trên thiết bị.</p>
         </div>
         <button
           className="primary-button"
@@ -131,6 +150,24 @@ export function SettingsPage({ datasetStatus, onCheckDataset }: SettingsPageProp
 
       {error && <div className="data-warning" role="status">{error}</div>}
       {message && <div className="settings-success" role="status">{message}</div>}
+
+      <section className="settings-section">
+        <div className="settings-section-heading">
+          <div>
+            <span className="eyebrow">Runtime</span>
+            <h2>Phiên bản ứng dụng</h2>
+          </div>
+          <span className={`settings-status ${runtime?.native ? "ready" : "pending"}`}>
+            {runtime?.native ? "Tauri native" : "Browser preview"}
+          </span>
+        </div>
+        <div className="settings-info-grid">
+          <article><span>Ứng dụng</span><strong>{runtime?.name ?? "Đang đọc..."}</strong></article>
+          <article><span>App version</span><strong>{runtime?.version ?? "—"}</strong></article>
+          <article><span>Tauri version</span><strong>{runtime?.tauriVersion ?? "—"}</strong></article>
+          <article><span>Identifier</span><strong>{runtime?.identifier ?? "—"}</strong></article>
+        </div>
+      </section>
 
       <section className="settings-section">
         <div className="settings-section-heading">
