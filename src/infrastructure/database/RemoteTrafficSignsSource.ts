@@ -17,6 +17,7 @@ export interface RemoteTrafficSignsManifest {
   sha256: string;
   sourceDocument: string;
   sourceSha256: string;
+  signCount: number;
   sizeBytes?: number;
   assets?: RemoteTrafficSignsAssetPackage;
 }
@@ -39,9 +40,13 @@ function assertSha256(value: string, label: string): string {
   return normalized;
 }
 
-function assertPositiveInteger(value: unknown, label: string): void {
-  if (value === undefined) return;
+function assertPositiveInteger(value: unknown, label: string): asserts value is number {
   if (!Number.isSafeInteger(value) || Number(value) <= 0) throw new Error(`${label} must be a positive integer`);
+}
+
+function assertOptionalPositiveInteger(value: unknown, label: string): void {
+  if (value === undefined) return;
+  assertPositiveInteger(value, label);
 }
 
 function resolveRemoteUrl(value: string, base?: string): string {
@@ -148,7 +153,8 @@ export async function fetchTrafficSignsManifest(url: string): Promise<RemoteTraf
   if (!manifest.sourceDocument?.trim()) throw new Error("Traffic signs manifest is missing sourceDocument");
   if (!manifest.sourceSha256?.trim()) throw new Error("Traffic signs manifest is missing sourceSha256");
 
-  assertPositiveInteger(manifest.sizeBytes, "traffic signs sizeBytes");
+  assertPositiveInteger(manifest.signCount, "traffic signs signCount");
+  assertOptionalPositiveInteger(manifest.sizeBytes, "traffic signs sizeBytes");
   const contentSha256 = assertSha256(manifest.sha256, "traffic signs sha256");
   const sourceSha256 = assertSha256(manifest.sourceSha256, "traffic signs source sha256");
   const manifestUrl = resolveRemoteUrl(response.url || requestedUrl);
@@ -159,8 +165,8 @@ export async function fetchTrafficSignsManifest(url: string): Promise<RemoteTraf
   if (manifest.assets) {
     if (manifest.assets.format !== "zip") throw new Error(`Unsupported traffic signs asset format: ${String(manifest.assets.format)}`);
     if (!manifest.assets.url?.trim() || !manifest.assets.sha256?.trim()) throw new Error("Traffic signs assets require url and sha256");
-    assertPositiveInteger(manifest.assets.sizeBytes, "traffic signs assets sizeBytes");
-    assertPositiveInteger(manifest.assets.fileCount, "traffic signs assets fileCount");
+    assertOptionalPositiveInteger(manifest.assets.sizeBytes, "traffic signs assets sizeBytes");
+    assertOptionalPositiveInteger(manifest.assets.fileCount, "traffic signs assets fileCount");
     if (manifest.assets.sizeBytes !== undefined && manifest.assets.sizeBytes > MAX_TRAFFIC_SIGN_ASSET_BYTES) {
       throw new Error(`traffic-sign-assets.zip exceeds maximum allowed size of ${MAX_TRAFFIC_SIGN_ASSET_BYTES} bytes`);
     }
@@ -174,6 +180,7 @@ export async function fetchTrafficSignsManifest(url: string): Promise<RemoteTraf
     version: manifest.version.trim(),
     validFrom: manifest.validFrom.trim(),
     sourceDocument: manifest.sourceDocument.trim(),
+    signCount: manifest.signCount,
     datasetUrl,
     sha256: contentSha256,
     sourceSha256,
@@ -189,7 +196,7 @@ export async function downloadVerifiedTrafficSignsBytes(
   timeoutMs = 120_000,
   maxBytes = MAX_DATASET_BYTES,
 ): Promise<Uint8Array> {
-  assertPositiveInteger(expectedSizeBytes, `${label} sizeBytes`);
+  assertOptionalPositiveInteger(expectedSizeBytes, `${label} sizeBytes`);
   if (expectedSizeBytes !== undefined && expectedSizeBytes > maxBytes) throw new Error(`${label} exceeds maximum allowed size`);
   const response = await fetchWithTimeout(url, timeoutMs);
   if (!response.ok) throw new Error(`Cannot download ${label}: HTTP ${response.status}`);
@@ -216,6 +223,9 @@ export async function downloadTrafficSignsDataset(manifest: RemoteTrafficSignsMa
     throw new Error(`traffic-signs.json is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
   }
   if (dataset.version !== manifest.version) throw new Error("Traffic signs dataset version does not match manifest");
+  if (!Array.isArray(dataset.signs) || dataset.signs.length !== manifest.signCount) {
+    throw new Error(`Traffic signs count mismatch: expected ${manifest.signCount}, found ${Array.isArray(dataset.signs) ? dataset.signs.length : 0}`);
+  }
   if (normalizeTrafficSignsSha256(dataset.sourceSha256) !== manifest.sourceSha256) {
     throw new Error("Traffic signs source provenance does not match manifest");
   }
