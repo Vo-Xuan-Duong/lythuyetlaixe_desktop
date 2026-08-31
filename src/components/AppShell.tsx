@@ -46,14 +46,14 @@ export function AppShell({ activeSection, onNavigate, children }: AppShellProps)
           </div>
           <div className="dataset-pill">
             <span>Dataset</span>
-            <strong>Demo</strong>
+            <strong>Offline-first</strong>
           </div>
         </header>
 
         <main className="content">{children}</main>
 
         <nav className="mobile-nav" aria-label="Điều hướng mobile">
-          {navigationItems.slice(0, 5).map((item) => (
+          {navigationItems.map((item) => (
             <button
               key={item.id}
               className={activeSection === item.id ? "active" : ""}
