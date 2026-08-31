@@ -10,5 +10,17 @@ src-tauri/gen/
 .env.*
 !.env.example
 
+# Generated 600-question working data.
 data/raw/*
 !data/raw/.gitkeep
+data/processed/*
+!data/processed/README.md
+
+# Traffic-sign source PDF/raw artifacts stay local. Commit only provenance docs.
+data/traffic-signs/source/*
+!data/traffic-signs/source/README.md
+!data/traffic-signs/source/source-manifest.json
+
+# Verified/generated traffic-sign payload and images are published to R2, not Git.
+data/traffic-signs/processed/*
+!data/traffic-signs/processed/README.md
