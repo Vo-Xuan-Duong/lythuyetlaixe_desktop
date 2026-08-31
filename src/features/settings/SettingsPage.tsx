@@ -200,12 +200,22 @@ export function SettingsPage({ datasetStatus, onCheckDataset }: SettingsPageProp
           <article><span>Ngày hiệu lực</span><strong>{info?.validFrom ?? "—"}</strong></article>
           <article><span>Số câu local</span><strong>{info?.questionCount ?? 0}/600</strong></article>
           <article><span>Import gần nhất</span><strong>{formatDate(info?.importedAt ?? null)}</strong></article>
-          <article><span>Nguồn</span><strong>{datasetStatus.state === "ready" ? datasetStatus.source : "—"}</strong></article>
+          <article><span>Nguồn runtime</span><strong>{datasetStatus.state === "ready" ? datasetStatus.source : "—"}</strong></article>
         </div>
 
         <dl className="settings-checksum-list">
-          <div><dt>Dataset SHA-256</dt><dd title={info?.sourceSha256 ?? undefined}>{shortHash(info?.sourceSha256 ?? null)}</dd></div>
-          <div><dt>Assets SHA-256</dt><dd title={info?.assetSha256 ?? undefined}>{shortHash(info?.assetSha256 ?? null)}</dd></div>
+          <div>
+            <dt>PDF nguồn SHA-256</dt>
+            <dd title={info?.sourceSha256 ?? undefined}>{shortHash(info?.sourceSha256 ?? null)}</dd>
+          </div>
+          <div>
+            <dt>questions.json SHA-256</dt>
+            <dd title={info?.contentSha256 ?? undefined}>{shortHash(info?.contentSha256 ?? null)}</dd>
+          </div>
+          <div>
+            <dt>assets.zip SHA-256</dt>
+            <dd title={info?.assetSha256 ?? undefined}>{shortHash(info?.assetSha256 ?? null)}</dd>
+          </div>
         </dl>
       </section>
 
