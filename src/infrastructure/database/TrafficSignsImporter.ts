@@ -70,6 +70,19 @@ function assertOptionalString(value: unknown, label: string): void {
   if (value !== undefined && value !== null && typeof value !== "string") throw new Error(`${label} must be a string when provided`);
 }
 
+function validateRecordProvenance(sign: TrafficSignRecord): void {
+  const code = sign.code.trim();
+  if (typeof sign.sourceSection !== "string" || !sign.sourceSection.trim()) throw new Error(`${code}: sourceSection is required`);
+  if (
+    !Array.isArray(sign.sourcePages) || sign.sourcePages.length === 0 ||
+    sign.sourcePages.some((page) => !Number.isInteger(page) || page <= 0)
+  ) throw new Error(`${code}: sourcePages must contain positive integers`);
+  if (typeof sign.verifiedBy !== "string" || !sign.verifiedBy.trim()) throw new Error(`${code}: verifiedBy is required`);
+  if (typeof sign.verifiedAt !== "string" || !sign.verifiedAt.trim() || Number.isNaN(Date.parse(sign.verifiedAt))) {
+    throw new Error(`${code}: verifiedAt must be a valid timestamp`);
+  }
+}
+
 function validateImageSelection(sign: TrafficSignRecord, datasetSourceSha256: string): void {
   const code = sign.code.trim();
   if (!sign.image) {
@@ -83,6 +96,7 @@ function validateImageSelection(sign: TrafficSignRecord, datasetSourceSha256: st
   if (!IMAGE_SELECTION_METHODS.has(selection.method)) throw new Error(`${code}: unsupported imageSelection method ${String(selection.method)}`);
   if (normalizedChecksum(selection.sourceSha256) !== datasetSourceSha256) throw new Error(`${code}: imageSelection sourceSha256 does not match dataset source`);
   if (typeof selection.sourceSection !== "string" || !selection.sourceSection.trim()) throw new Error(`${code}: imageSelection sourceSection is required`);
+  if (selection.sourceSection.trim() !== sign.sourceSection?.trim()) throw new Error(`${code}: imageSelection sourceSection does not match record`);
   if (!Number.isInteger(selection.page) || selection.page <= 0) throw new Error(`${code}: imageSelection page must be a positive integer`);
   if (
     !Array.isArray(selection.crop) || selection.crop.length !== 4 ||
@@ -121,11 +135,13 @@ export function validateTrafficSignsDataset(dataset: TrafficSignsDataset): void 
     if (!GROUP_CODES.has(sign.groupCode)) throw new Error(`${code}: invalid group ${String(sign.groupCode)}`);
     if (typeof sign.meaning !== "string" || !sign.meaning.trim()) throw new Error(`${code}: meaning is required`);
     if (typeof sign.sourceVersion !== "string" || !sign.sourceVersion.trim()) throw new Error(`${code}: sourceVersion is required`);
+    if (sign.sourceVersion.trim() !== dataset.sourceDocument.trim()) throw new Error(`${code}: sourceVersion must match dataset sourceDocument`);
     assertOptionalString(sign.recognition, `${code}: recognition`);
     assertOptionalString(sign.scope, `${code}: scope`);
     assertOptionalString(sign.notes, `${code}: notes`);
     assertStringArray(sign.exceptions, `${code}: exceptions`);
     assertStringArray(sign.keywords, `${code}: keywords`);
+    validateRecordProvenance(sign);
     if (sign.image !== undefined && sign.image !== null && sign.image !== "" && typeof sign.image !== "string") throw new Error(`${code}: image must be a string`);
     validateImageSelection(sign, datasetSourceSha256);
   }
