@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST_PATH = ROOT / "data" / "traffic-signs" / "source" / "source-manifest.json"
 SOURCE_DIR = MANIFEST_PATH.parent
-MAX_SOURCE_BYTES = 64 * 1024 * 1024
+MAX_SOURCE_BYTES = 128 * 1024 * 1024
 
 
 def sha256_file(path: Path) -> str:
@@ -20,26 +20,30 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def main() -> int:
-    if not MANIFEST_PATH.is_file():
-        raise SystemExit(f"Missing source manifest: {MANIFEST_PATH}")
+def validate_local_filename(value: object, label: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{label}.localFile is required")
+    filename = value.strip()
+    if Path(filename).name != filename or filename in {".", ".."}:
+        raise ValueError(f"{label}.localFile must be a plain filename inside data/traffic-signs/source")
+    return filename
 
-    manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
-    url = manifest.get("officialUrl")
-    local_file = manifest.get("localFile")
-    if not isinstance(url, str) or not url.strip():
-        raise SystemExit("source-manifest.json is missing officialUrl")
-    if urlparse(url).scheme != "https":
-        raise SystemExit("Traffic-sign source URL must use HTTPS")
-    if not isinstance(local_file, str) or not local_file.strip():
-        raise SystemExit("source-manifest.json is missing localFile")
-    if Path(local_file).name != local_file or local_file in {".", ".."}:
-        raise SystemExit("localFile must be a plain filename inside data/traffic-signs/source")
 
-    destination = SOURCE_DIR / local_file
+def validate_https_url(value: object, label: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{label}.officialUrl is missing")
+    url = value.strip()
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or not parsed.netloc:
+        raise ValueError(f"{label}.officialUrl must use HTTPS")
+    if parsed.username or parsed.password:
+        raise ValueError(f"{label}.officialUrl must not contain credentials")
+    return url
+
+
+def download_file(url: str, destination: Path, label: str) -> tuple[str, int, str]:
     temporary = destination.with_suffix(destination.suffix + ".download")
-    if temporary.exists():
-        temporary.unlink()
+    temporary.unlink(missing_ok=True)
 
     request = urllib.request.Request(
         url,
@@ -50,12 +54,17 @@ def main() -> int:
     try:
         with urllib.request.urlopen(request, timeout=60) as response, temporary.open("wb") as output:
             final_url = response.geturl()
-            if urlparse(final_url).scheme != "https":
-                raise RuntimeError(f"Source redirected to non-HTTPS URL: {final_url}")
+            parsed_final = urlparse(final_url)
+            if parsed_final.scheme != "https" or not parsed_final.netloc:
+                raise RuntimeError(f"{label} redirected to a non-HTTPS URL: {final_url}")
 
             declared_length = response.headers.get("Content-Length")
-            if declared_length and int(declared_length) > MAX_SOURCE_BYTES:
-                raise RuntimeError("Traffic-sign source exceeds the 64 MiB safety limit")
+            if declared_length:
+                try:
+                    if int(declared_length) > MAX_SOURCE_BYTES:
+                        raise RuntimeError(f"{label} exceeds the 128 MiB safety limit")
+                except ValueError:
+                    pass
 
             total = 0
             while True:
@@ -64,27 +73,83 @@ def main() -> int:
                     break
                 total += len(chunk)
                 if total > MAX_SOURCE_BYTES:
-                    raise RuntimeError("Traffic-sign source exceeds the 64 MiB safety limit")
+                    raise RuntimeError(f"{label} exceeds the 128 MiB safety limit")
                 output.write(chunk)
     except Exception:
         temporary.unlink(missing_ok=True)
         raise
 
     temporary.replace(destination)
-    checksum = sha256_file(destination)
-    manifest["sourceSha256"] = checksum
-    manifest["verificationStatus"] = "downloaded-and-sha256-recorded"
-    manifest["downloadedFrom"] = url
-    manifest["sourceSizeBytes"] = destination.stat().st_size
-    MANIFEST_PATH.write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    return sha256_file(destination), destination.stat().st_size, final_url
 
-    print(f"[ok] source: {destination}")
-    print(f"[ok] sha256: {checksum}")
+
+def process_downloaded_entry(entry: dict, label: str) -> None:
+    url = validate_https_url(entry.get("officialUrl"), label)
+    filename = validate_local_filename(entry.get("localFile"), label)
+    destination = SOURCE_DIR / filename
+    checksum, size_bytes, final_url = download_file(url, destination, label)
+    entry["sourceSha256"] = checksum
+    entry["sourceSizeBytes"] = size_bytes
+    entry["downloadedFrom"] = final_url
+    entry["verificationStatus"] = "downloaded-and-sha256-recorded"
+    print(f"[ok] {label}: {destination}")
+    print(f"[ok] {label} sha256: {checksum}")
+
+
+def process_existing_technical_source(entry: dict) -> bool:
+    filename = validate_local_filename(entry.get("localFile"), "technicalSource")
+    source = SOURCE_DIR / filename
+    if not source.is_file():
+        return False
+
+    checksum = sha256_file(source)
+    entry["sourceSha256"] = checksum
+    entry["sourceSizeBytes"] = source.stat().st_size
+    if entry.get("verificationStatus") != "verified-official-full-source":
+        entry["verificationStatus"] = "local-file-sha256-recorded-pending-content-review"
+    print(f"[ok] technicalSource local file: {source}")
+    print(f"[ok] technicalSource sha256: {checksum}")
+    return True
+
+
+def main() -> int:
+    if not MANIFEST_PATH.is_file():
+        raise SystemExit(f"Missing source manifest: {MANIFEST_PATH}")
+
+    try:
+        manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+        legal_basis = manifest.get("legalBasis")
+        technical_source = manifest.get("technicalSource")
+        if not isinstance(legal_basis, dict):
+            raise ValueError("source-manifest.json is missing legalBasis")
+        if not isinstance(technical_source, dict):
+            raise ValueError("source-manifest.json is missing technicalSource")
+
+        process_downloaded_entry(legal_basis, "legalBasis")
+
+        technical_url = technical_source.get("officialUrl")
+        if isinstance(technical_url, str) and technical_url.strip():
+            process_downloaded_entry(technical_source, "technicalSource")
+            technical_source["verificationStatus"] = "downloaded-and-sha256-recorded-pending-content-review"
+        elif not process_existing_technical_source(technical_source):
+            print(
+                "[pending] technicalSource: chưa có officialUrl và chưa có file local "
+                f"{technical_source.get('localFile', 'qcvn-41-2024-bgvt-full.pdf')}."
+            )
+            print(
+                "          Cần bản đầy đủ QCVN 41:2024/BGTVT có các phụ lục kỹ thuật; "
+                "PDF Thông tư một trang không đủ làm source of truth cho từng biển."
+            )
+
+        MANIFEST_PATH.write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        raise SystemExit(f"Cannot prepare traffic-sign sources: {error}") from error
+
     print(f"[ok] manifest updated: {MANIFEST_PATH}")
-    print("Review that the downloaded document is the intended official source before using it for production catalog work.")
+    print("Next: verify the full technical source before building a production catalog.")
     return 0
 
 
