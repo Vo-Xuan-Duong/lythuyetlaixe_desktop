@@ -19,6 +19,33 @@ SOURCE_DOCUMENT = "QCVN 41:2024/BGTVT"
 
 
 def sample_dataset(source_sha256: str, image: str | None = None) -> dict:
+    sign = {
+        "code": "S.H,3",
+        "name": "Fixture only",
+        "groupCode": "SUPPLEMENTARY",
+        "meaning": "Test fixture, not production data",
+        "recognition": None,
+        "scope": None,
+        "exceptions": [],
+        "notes": None,
+        "image": image,
+        "imageVerified": True if image else False,
+        "keywords": ["fixture"],
+        "sourceVersion": SOURCE_DOCUMENT,
+        "sourceSection": "F.1",
+        "sourcePages": [1],
+        "verifiedBy": "unit-test",
+        "verifiedAt": "2026-08-31T00:00:00Z",
+    }
+    if image:
+        sign["imageSelection"] = {
+            "method": "official-qcvn-manual-crop",
+            "sourceSha256": source_sha256,
+            "sourceSection": "F.1",
+            "page": 1,
+            "crop": [0.0, 0.0, 10.0, 10.0],
+            "processedAsset": image,
+        }
     return {
         "dataset": "VN_TRAFFIC_SIGNS",
         "version": VERSION,
@@ -26,22 +53,7 @@ def sample_dataset(source_sha256: str, image: str | None = None) -> dict:
         "stage": "production",
         "sourceDocument": SOURCE_DOCUMENT,
         "sourceSha256": source_sha256,
-        "signs": [
-            {
-                "code": "S.H,3",
-                "name": "Fixture only",
-                "groupCode": "SUPPLEMENTARY",
-                "meaning": "Test fixture, not production data",
-                "recognition": None,
-                "scope": None,
-                "exceptions": [],
-                "notes": None,
-                "image": image,
-                "imageVerified": True if image else False,
-                "keywords": ["fixture"],
-                "sourceVersion": SOURCE_DOCUMENT,
-            }
-        ],
+        "signs": [sign],
     }
 
 
@@ -54,13 +66,7 @@ def write_verified_source(root: Path) -> tuple[Path, str]:
         source_file = source_dir / filename
         source_file.write_bytes(f"verified fixture source part {index}".encode("utf-8"))
         checksum = hashlib.sha256(source_file.read_bytes()).hexdigest()
-        parts.append(
-            {
-                "issue": issue,
-                "localFile": filename,
-                "sourceSha256": checksum,
-            }
-        )
+        parts.append({"issue": issue, "localFile": filename, "sourceSha256": checksum})
 
     combined = source_dir / "qcvn-full.pdf"
     combined.write_bytes(b"combined fixture source")
@@ -125,11 +131,9 @@ class TrafficSignsPublishTests(unittest.TestCase):
             output = root / "dist"
             source.write_text(json.dumps(sample_dataset(source_sha)), encoding="utf-8")
             publish(source, root / "assets", output, source_manifest)
-
             changed = sample_dataset(source_sha)
             changed["signs"][0]["meaning"] = "Changed fixture"
             source.write_text(json.dumps(changed), encoding="utf-8")
-
             with self.assertRaisesRegex(ValueError, "bump traffic-sign dataset version"):
                 publish(source, root / "assets", output, source_manifest)
 
@@ -139,7 +143,6 @@ class TrafficSignsPublishTests(unittest.TestCase):
             source_manifest, source_sha = write_verified_source(root)
             source = root / "traffic-signs.json"
             source.write_text(json.dumps(sample_dataset(source_sha, "../escape.svg")), encoding="utf-8")
-
             with self.assertRaisesRegex(ValueError, "unsafe traffic sign asset path"):
                 publish(source, root / "assets", root / "dist", source_manifest)
 
@@ -152,7 +155,6 @@ class TrafficSignsPublishTests(unittest.TestCase):
             source_manifest.write_text(json.dumps(manifest), encoding="utf-8")
             source = root / "traffic-signs.json"
             source.write_text(json.dumps(sample_dataset(source_sha)), encoding="utf-8")
-
             with self.assertRaisesRegex(ValueError, "verified-official-full-source"):
                 publish(source, root / "assets", root / "dist", source_manifest)
 
@@ -165,7 +167,6 @@ class TrafficSignsPublishTests(unittest.TestCase):
             (source_dir / manifest["technicalSource"]["parts"][1]["localFile"]).write_bytes(b"tampered")
             source = root / "traffic-signs.json"
             source.write_text(json.dumps(sample_dataset(source_sha)), encoding="utf-8")
-
             with self.assertRaisesRegex(ValueError, "part SHA-256 mismatch"):
                 publish(source, root / "assets", root / "dist", source_manifest)
 
@@ -178,8 +179,18 @@ class TrafficSignsPublishTests(unittest.TestCase):
             source_manifest.write_text(json.dumps(manifest), encoding="utf-8")
             source = root / "traffic-signs.json"
             source.write_text(json.dumps(sample_dataset(source_sha)), encoding="utf-8")
-
             with self.assertRaisesRegex(ValueError, "issue must be 1359\+1360"):
+                publish(source, root / "assets", root / "dist", source_manifest)
+
+    def test_rejects_image_without_provenance(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source_manifest, source_sha = write_verified_source(root)
+            source = root / "traffic-signs.json"
+            data = sample_dataset(source_sha, "signs/s-h-3.svg")
+            data["signs"][0].pop("imageSelection")
+            source.write_text(json.dumps(data), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "requires imageSelection provenance"):
                 publish(source, root / "assets", root / "dist", source_manifest)
 
 
