@@ -81,6 +81,14 @@ assert(typeof dataset?.version === "string" && dataset.version.length > 0, "data
 assert(typeof dataset?.validFrom === "string" && dataset.validFrom.length > 0, "dataset.validFrom is required");
 assert(Array.isArray(dataset?.questions), "dataset.questions must be an array");
 assert(dataset?.stage === "production", "dataset.stage must equal production before release/import");
+assert(
+  dataset?.imageVerification && typeof dataset.imageVerification === "object",
+  "dataset.imageVerification metadata is required",
+);
+assert(
+  dataset?.imageVerification?.unresolved === 0,
+  `dataset.imageVerification.unresolved must equal 0, found ${String(dataset?.imageVerification?.unresolved)}`,
+);
 
 const questions = Array.isArray(dataset?.questions) ? dataset.questions : [];
 assert(
@@ -90,7 +98,8 @@ assert(
 
 const seenIds = new Set();
 let criticalCount = 0;
-let unresolvedCount = 0;
+let unresolvedAnswerCount = 0;
+let unresolvedImageCount = 0;
 
 for (const question of questions) {
   const prefix = `question ${question?.id ?? "<missing-id>"}`;
@@ -110,8 +119,15 @@ for (const question of questions) {
     assert(question.category === category, `${prefix}: expected category ${category}, found ${question.category}`);
   }
 
-  if (question.needsVerification === true) unresolvedCount += 1;
-  assert(question.needsVerification !== true, `${prefix}: still requires manual verification`);
+  if (question.needsVerification === true) unresolvedAnswerCount += 1;
+  assert(question.needsVerification !== true, `${prefix}: answer still requires manual verification`);
+
+  assert(
+    typeof question.imageNeedsVerification === "boolean",
+    `${prefix}: imageNeedsVerification must be a boolean`,
+  );
+  if (question.imageNeedsVerification === true) unresolvedImageCount += 1;
+  assert(question.imageNeedsVerification !== true, `${prefix}: image still requires manual verification`);
 
   assert(Array.isArray(question.answers) && question.answers.length >= 2, `${prefix}: at least 2 answers are required`);
 
@@ -153,7 +169,8 @@ assert(
   criticalCount === EXPECTED_CRITICAL_COUNT,
   `expected ${EXPECTED_CRITICAL_COUNT} critical questions, found ${criticalCount}`,
 );
-assert(unresolvedCount === 0, `expected 0 unresolved questions, found ${unresolvedCount}`);
+assert(unresolvedAnswerCount === 0, `expected 0 unresolved answers, found ${unresolvedAnswerCount}`);
+assert(unresolvedImageCount === 0, `expected 0 unresolved images, found ${unresolvedImageCount}`);
 
 if (warnings.length > 0) {
   console.warn(`\nWarnings (${warnings.length}):`);
@@ -169,6 +186,7 @@ if (errors.length > 0) {
 console.log("Dataset validation passed.");
 console.log(`- Questions: ${questions.length}`);
 console.log(`- Critical questions: ${criticalCount}`);
-console.log(`- Unresolved: ${unresolvedCount}`);
+console.log(`- Unresolved answers: ${unresolvedAnswerCount}`);
+console.log(`- Unresolved images: ${unresolvedImageCount}`);
 console.log(`- Version: ${dataset.version}`);
 console.log(`- Valid from: ${dataset.validFrom}`);
