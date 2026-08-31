@@ -25,6 +25,7 @@ export interface RemoteTrafficSignsManifest {
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_MANIFEST_BYTES = 128 * 1024;
 const MAX_DATASET_BYTES = 8 * 1024 * 1024;
+export const MAX_TRAFFIC_SIGN_COUNT = 2_000;
 export const MAX_TRAFFIC_SIGN_ASSET_BYTES = 64 * 1024 * 1024;
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
 const VERSION_RE = /^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$/;
@@ -155,6 +156,9 @@ export async function fetchTrafficSignsManifest(url: string): Promise<RemoteTraf
 
   const signCount = manifest.signCount;
   assertPositiveInteger(signCount, "traffic signs signCount");
+  if (signCount > MAX_TRAFFIC_SIGN_COUNT) {
+    throw new Error(`traffic signs signCount exceeds maximum of ${MAX_TRAFFIC_SIGN_COUNT}`);
+  }
   assertOptionalPositiveInteger(manifest.sizeBytes, "traffic signs sizeBytes");
   const contentSha256 = assertSha256(manifest.sha256, "traffic signs sha256");
   const sourceSha256 = assertSha256(manifest.sourceSha256, "traffic signs source sha256");
@@ -168,6 +172,9 @@ export async function fetchTrafficSignsManifest(url: string): Promise<RemoteTraf
     if (!manifest.assets.url?.trim() || !manifest.assets.sha256?.trim()) throw new Error("Traffic signs assets require url and sha256");
     assertOptionalPositiveInteger(manifest.assets.sizeBytes, "traffic signs assets sizeBytes");
     assertOptionalPositiveInteger(manifest.assets.fileCount, "traffic signs assets fileCount");
+    if (manifest.assets.fileCount !== undefined && manifest.assets.fileCount > signCount) {
+      throw new Error("traffic signs assets fileCount cannot exceed signCount");
+    }
     if (manifest.assets.sizeBytes !== undefined && manifest.assets.sizeBytes > MAX_TRAFFIC_SIGN_ASSET_BYTES) {
       throw new Error(`traffic-sign-assets.zip exceeds maximum allowed size of ${MAX_TRAFFIC_SIGN_ASSET_BYTES} bytes`);
     }
@@ -242,7 +249,7 @@ export async function downloadTrafficSignsDataset(manifest: RemoteTrafficSignsMa
   if (normalizeTrafficSignsSha256(dataset.sourceSha256) !== manifest.sourceSha256) {
     throw new Error("Traffic signs source provenance does not match manifest");
   }
-  if (dataset.sourceDocument.trim() !== manifest.sourceDocument) {
+  if (typeof dataset.sourceDocument !== "string" || dataset.sourceDocument.trim() !== manifest.sourceDocument) {
     throw new Error("Traffic signs source document does not match manifest");
   }
   return dataset;
