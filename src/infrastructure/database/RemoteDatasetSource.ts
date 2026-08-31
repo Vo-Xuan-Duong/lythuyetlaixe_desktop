@@ -76,10 +76,12 @@ export async function fetchDatasetManifest(url: string): Promise<RemoteDatasetMa
   const manifestUrl = response.url || url;
   return {
     ...(manifest as RemoteDatasetManifest),
+    sha256: normalizeSha256(manifest.sha256),
     datasetUrl: new URL(manifest.datasetUrl, manifestUrl).toString(),
     assets: manifest.assets
       ? {
           ...manifest.assets,
+          sha256: normalizeSha256(manifest.assets.sha256),
           url: new URL(manifest.assets.url, manifestUrl).toString(),
         }
       : undefined,
@@ -146,8 +148,8 @@ export async function downloadDataset(manifest: RemoteDatasetManifest): Promise<
     throw new Error("Dataset stage does not match remote manifest");
   }
 
-  return {
-    ...dataset,
-    sourceSha256: normalizeSha256(manifest.sha256),
-  };
+  // Important: dataset.sourceSha256 is provenance for the official source PDF.
+  // manifest.sha256 is the distribution checksum for questions.json and must be
+  // stored separately as contentSha256 by DatasetImporter.
+  return dataset;
 }
