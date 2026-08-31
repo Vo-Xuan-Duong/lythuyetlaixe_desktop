@@ -1,5 +1,9 @@
 import type { QuestionProgress } from "../../domain/entities/progress";
-import type { ProgressRepository } from "../../domain/repositories/ProgressRepository";
+import type {
+  ProgressAnswerRecord,
+  ProgressRepository,
+} from "../../domain/repositories/ProgressRepository";
+import { recordAnswerProgress } from "../../domain/services/learningProgress";
 import { getDatabase } from "../database/database";
 
 interface ProgressRow {
@@ -32,28 +36,37 @@ export class SqliteProgressRepository implements ProgressRepository {
 
   async save(progress: QuestionProgress): Promise<void> {
     const db = await getDatabase();
-    await db.execute(
-      `INSERT INTO user_progress (
-         question_id, attempt_count, correct_count, wrong_count, mastery,
-         last_answered_at, next_review_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7)
-       ON CONFLICT(question_id) DO UPDATE SET
-         attempt_count = excluded.attempt_count,
-         correct_count = excluded.correct_count,
-         wrong_count = excluded.wrong_count,
-         mastery = excluded.mastery,
-         last_answered_at = excluded.last_answered_at,
-         next_review_at = excluded.next_review_at`,
-      [
-        progress.questionId,
-        progress.attemptCount,
-        progress.correctCount,
-        progress.wrongCount,
-        progress.mastery,
-        progress.lastAnsweredAt ?? null,
-        progress.nextReviewAt ?? null,
-      ],
-    );
+    await this.upsertProgress(db, progress);
+  }
+
+  async recordAnswers(records: ProgressAnswerRecord[], answeredAt = new Date()): Promise<void> {
+    if (records.length === 0) return;
+
+    const db = await getDatabase();
+    await db.execute("BEGIN IMMEDIATE TRANSACTION");
+    try {
+      for (const record of records) {
+        const rows = await db.select<ProgressRow[]>(
+          `SELECT question_id, attempt_count, correct_count, wrong_count, mastery,
+                  last_answered_at, next_review_at
+           FROM user_progress
+           WHERE question_id = $1`,
+          [record.questionId],
+        );
+        const previous = rows[0] ? this.mapProgress(rows[0]) : null;
+        const next = recordAnswerProgress({
+          questionId: record.questionId,
+          correct: record.correct,
+          previous,
+          answeredAt,
+        });
+        await this.upsertProgress(db, next);
+      }
+      await db.execute("COMMIT");
+    } catch (error) {
+      await db.execute("ROLLBACK");
+      throw error;
+    }
   }
 
   async listWeak(limit = 20): Promise<QuestionProgress[]> {
@@ -99,6 +112,34 @@ export class SqliteProgressRepository implements ProgressRepository {
       "SELECT question_id FROM bookmarks ORDER BY created_at DESC",
     );
     return rows.map((row) => row.question_id);
+  }
+
+  private async upsertProgress(
+    db: Awaited<ReturnType<typeof getDatabase>>,
+    progress: QuestionProgress,
+  ): Promise<void> {
+    await db.execute(
+      `INSERT INTO user_progress (
+         question_id, attempt_count, correct_count, wrong_count, mastery,
+         last_answered_at, next_review_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT(question_id) DO UPDATE SET
+         attempt_count = excluded.attempt_count,
+         correct_count = excluded.correct_count,
+         wrong_count = excluded.wrong_count,
+         mastery = excluded.mastery,
+         last_answered_at = excluded.last_answered_at,
+         next_review_at = excluded.next_review_at`,
+      [
+        progress.questionId,
+        progress.attemptCount,
+        progress.correctCount,
+        progress.wrongCount,
+        progress.mastery,
+        progress.lastAnsweredAt ?? null,
+        progress.nextReviewAt ?? null,
+      ],
+    );
   }
 
   private mapProgress(row: ProgressRow): QuestionProgress {
