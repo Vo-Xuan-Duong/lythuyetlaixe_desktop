@@ -92,6 +92,11 @@ export async function bootstrapDataset(): Promise<DatasetBootstrapStatus> {
     }
 
     const sameVersion = localState.ready && localState.version === manifest.version;
+    const localHasContentChecksum = Boolean(normalizedSha256(localState.contentSha256));
+    const legacyProvenanceMatches =
+      sameVersion &&
+      !localHasContentChecksum &&
+      normalizedSha256(localState.sourceSha256) === normalizedSha256(manifest.sourceSha256);
     const sameDatasetChecksum =
       normalizedSha256(localState.contentSha256) === normalizedSha256(manifest.sha256);
     const remoteAssetSha256 = manifest.assets ? normalizedSha256(manifest.assets.sha256) : "";
@@ -106,14 +111,17 @@ export async function bootstrapDataset(): Promise<DatasetBootstrapStatus> {
       };
     }
 
-    if (sameVersion && (!sameDatasetChecksum || !sameAssetChecksum)) {
+    // A legacy local package with valid PDF provenance but no contentSha256 can
+    // be safely re-downloaded/revalidated once to establish distribution
+    // integrity. Other same-version mismatches stay immutable.
+    if (sameVersion && !legacyProvenanceMatches && (!sameDatasetChecksum || !sameAssetChecksum)) {
       return {
         state: "ready",
         version: localState.version!,
         importStatus: "up-to-date",
         source: "local-cache",
         warning:
-          "Package remote đã thay đổi nhưng không tăng version, hoặc local package chưa có checksum phân phối có thể xác minh. Ứng dụng giữ nguyên version local để bảo toàn tính bất biến.",
+          "Package remote đã thay đổi nhưng không tăng version, hoặc local package chưa có checksum/provenance đủ để xác minh. Ứng dụng giữ nguyên version local để bảo toàn tính bất biến.",
       };
     }
 
@@ -162,6 +170,9 @@ export async function bootstrapDataset(): Promise<DatasetBootstrapStatus> {
       version: result.version,
       importStatus: result.status,
       source: "remote",
+      warning: legacyProvenanceMatches
+        ? "Đã revalidate package local legacy và bổ sung content checksum."
+        : undefined,
     };
   } catch (error) {
     if (pendingAssetVersion) {
