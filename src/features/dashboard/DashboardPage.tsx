@@ -29,7 +29,7 @@ export function DashboardPage({ datasetStatus, onNavigate }: DashboardPageProps)
     setLoading(true);
     setError(undefined);
     void repository
-      .getStatisticsSnapshot({ weakestLimit: 5, recentExamLimit: 5 })
+      .getStatistics({ recentExamLimit: 5 })
       .then((result) => {
         if (active) setSnapshot(result);
       })
@@ -51,8 +51,6 @@ export function DashboardPage({ datasetStatus, onNavigate }: DashboardPageProps)
   const learnedQuestions = snapshot?.learning.learnedQuestions ?? demoSummary.learnedQuestions;
   const totalQuestions = snapshot?.learning.totalQuestions ?? demoSummary.totalQuestions;
   const criticalMastered = snapshot?.critical.masteredQuestions ?? demoSummary.criticalMastered;
-  const wrongQuestions = snapshot?.weakestQuestions.length ?? demoSummary.wrongQuestions;
-  const bookmarkedQuestions = demoSummary.bookmarkedQuestions;
   const progress = totalQuestions > 0 ? Math.round((learnedQuestions / totalQuestions) * 100) : 0;
   const progressStyle = { "--progress": `${progress}%` } as CSSProperties;
 
@@ -114,13 +112,13 @@ export function DashboardPage({ datasetStatus, onNavigate }: DashboardPageProps)
         </article>
         <article className="stat-card">
           <span>Đến hạn ôn</span>
-          <strong>{snapshot?.learning.dueQuestions ?? wrongQuestions}</strong>
+          <strong>{snapshot?.learning.dueQuestions ?? 0}</strong>
           <small>cần ưu tiên</small>
         </article>
         <article className="stat-card">
           <span>Độ chính xác</span>
-          <strong>{snapshot ? `${snapshot.learning.accuracyPercent}%` : `${bookmarkedQuestions}`}</strong>
-          <small>{snapshot ? `${snapshot.learning.attemptCount} lượt trả lời` : "demo"}</small>
+          <strong>{snapshot ? `${snapshot.learning.accuracyPercent}%` : "—"}</strong>
+          <small>{snapshot ? `${snapshot.learning.attemptCount} lượt trả lời` : "chờ dữ liệu thật"}</small>
         </article>
       </section>
 
