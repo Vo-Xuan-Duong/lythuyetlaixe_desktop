@@ -9,6 +9,17 @@ export const TRAFFIC_SIGN_GROUP_CODES = [
 export const MAX_TRAFFIC_SIGN_COUNT = 2_000;
 
 export type TrafficSignGroupCode = (typeof TRAFFIC_SIGN_GROUP_CODES)[number];
+export type TrafficSignImageSelectionMethod = "official-qcvn-candidate" | "official-qcvn-manual-crop";
+
+export interface TrafficSignImageSelection {
+  method: TrafficSignImageSelectionMethod;
+  sourceSha256: string;
+  sourceSection: string;
+  page: number;
+  crop: [number, number, number, number];
+  processedAsset: string;
+  candidateFile?: string;
+}
 
 export interface TrafficSignRecord {
   code: string;
@@ -20,6 +31,8 @@ export interface TrafficSignRecord {
   exceptions: string[];
   notes?: string;
   image?: string;
+  imageVerified?: boolean;
+  imageSelection?: TrafficSignImageSelection;
   keywords: string[];
   sourceVersion: string;
 }
