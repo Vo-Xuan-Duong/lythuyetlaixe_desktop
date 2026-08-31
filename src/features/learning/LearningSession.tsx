@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Question } from "../../domain/entities/question";
 import type { QuestionProgress } from "../../domain/entities/progress";
 import { accuracyPercent, recordAnswerProgress } from "../../domain/services/learningProgress";
@@ -11,6 +11,8 @@ interface LearningSessionProps {
   datasetStatus: DatasetBootstrapStatus;
   initialQuestionId: number;
   onBack: () => void;
+  questionSequence?: number[];
+  backLabel?: string;
 }
 
 const QUESTION_COUNT = 600;
@@ -39,7 +41,13 @@ function formatReviewTime(value?: string): string {
   }).format(date);
 }
 
-export function LearningSession({ datasetStatus, initialQuestionId, onBack }: LearningSessionProps) {
+export function LearningSession({
+  datasetStatus,
+  initialQuestionId,
+  onBack,
+  questionSequence,
+  backLabel = "Danh sách câu hỏi",
+}: LearningSessionProps) {
   const [currentQuestionId, setCurrentQuestionId] = useState(initialQuestionId);
   const [selectedAnswer, setSelectedAnswer] = useState<string>();
   const [checked, setChecked] = useState(false);
@@ -110,6 +118,26 @@ export function LearningSession({ datasetStatus, initialQuestionId, onBack }: Le
   const selected = question.answers.find((answer) => answer.key === selectedAnswer);
   const accuracy = accuracyPercent(progress);
 
+  const sequencePosition = useMemo(() => {
+    if (!questionSequence?.length) return -1;
+    return questionSequence.indexOf(currentQuestionId);
+  }, [currentQuestionId, questionSequence]);
+
+  const previousQuestionId = questionSequence?.length
+    ? sequencePosition > 0
+      ? questionSequence[sequencePosition - 1]
+      : undefined
+    : currentQuestionId > 1
+      ? currentQuestionId - 1
+      : undefined;
+  const nextQuestionId = questionSequence?.length
+    ? sequencePosition >= 0 && sequencePosition + 1 < questionSequence.length
+      ? questionSequence[sequencePosition + 1]
+      : undefined
+    : currentQuestionId < QUESTION_COUNT
+      ? currentQuestionId + 1
+      : undefined;
+
   const resetAnswer = () => {
     setSelectedAnswer(undefined);
     setChecked(false);
@@ -172,8 +200,8 @@ export function LearningSession({ datasetStatus, initialQuestionId, onBack }: Le
     }
   };
 
-  const navigateTo = (questionId: number) => {
-    if (!isProductionData || questionLoading || saving) return;
+  const navigateTo = (questionId?: number) => {
+    if (!isProductionData || questionLoading || saving || questionId === undefined) return;
     if (questionId < 1 || questionId > QUESTION_COUNT || questionId === currentQuestionId) return;
     setCurrentQuestionId(questionId);
   };
@@ -189,7 +217,7 @@ export function LearningSession({ datasetStatus, initialQuestionId, onBack }: Le
     <div className="page learning-page">
       <div className="learning-back-row">
         <button className="text-button" type="button" onClick={onBack}>
-          ← Danh sách câu hỏi
+          ← {backLabel}
         </button>
       </div>
 
@@ -197,6 +225,9 @@ export function LearningSession({ datasetStatus, initialQuestionId, onBack }: Le
         <div>
           <span className="eyebrow">Chế độ học</span>
           <h1>Câu {question.id} / {QUESTION_COUNT}</h1>
+          {questionSequence?.length && sequencePosition >= 0 ? (
+            <p>Vị trí {sequencePosition + 1} / {questionSequence.length} trong danh sách ôn tập.</p>
+          ) : null}
         </div>
         <div className="question-tags">
           <span>{CATEGORY_LABELS[question.categoryCode] ?? question.categoryCode}</span>
@@ -290,16 +321,16 @@ export function LearningSession({ datasetStatus, initialQuestionId, onBack }: Le
             <button
               className="secondary-button"
               type="button"
-              disabled={!isProductionData || currentQuestionId <= 1 || questionLoading || saving}
-              onClick={() => navigateTo(currentQuestionId - 1)}
+              disabled={!isProductionData || previousQuestionId === undefined || questionLoading || saving}
+              onClick={() => navigateTo(previousQuestionId)}
             >
               ← Câu trước
             </button>
             <button
               className="secondary-button"
               type="button"
-              disabled={!isProductionData || currentQuestionId >= QUESTION_COUNT || questionLoading || saving}
-              onClick={() => navigateTo(currentQuestionId + 1)}
+              disabled={!isProductionData || nextQuestionId === undefined || questionLoading || saving}
+              onClick={() => navigateTo(nextQuestionId)}
             >
               Câu tiếp →
             </button>
