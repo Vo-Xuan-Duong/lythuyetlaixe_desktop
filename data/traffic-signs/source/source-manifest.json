@@ -3,9 +3,27 @@
   "sourceDocument": "QCVN 41:2024/BGTVT",
   "promulgatedBy": "Thông tư 51/2024/TT-BGTVT",
   "effectiveFrom": "2025-01-01",
-  "officialUrl": "https://vbpl.vn/FileData/TW/Lists/vbpq/Attachments/173121/VanBanGoc_Th%C3%B4ng%20t%C6%B0%2051.2024.TT-BGTVT.pdf",
-  "localFile": "qcvn-41-2024-bgvt.pdf",
-  "sourceSha256": null,
-  "verificationStatus": "pending-local-download-and-hash",
-  "notes": "Điền sourceSha256 từ đúng file nguồn đã tải local trước khi tạo catalog production. Không dùng nguồn luyện thi bên thứ ba làm source of truth."
+  "legalBasis": {
+    "registryUrl": "https://vbpl.vn/TW/Pages/vbpq-thuoctinh.aspx?ItemID=173121",
+    "officialUrl": "https://vbpl.vn/FileData/TW/Lists/vbpq/Attachments/173121/VanBanGoc_Th%C3%B4ng%20t%C6%B0%2051.2024.TT-BGTVT.pdf",
+    "localFile": "thong-tu-51-2024-tt-bgtvt.pdf",
+    "sourceSha256": null,
+    "verificationStatus": "pending-local-download-and-hash",
+    "notes": "Văn bản ban hành chính thức. File PDF này xác nhận việc ban hành QCVN 41:2024/BGTVT nhưng không được dùng làm provenance nội dung cho từng biển nếu không chứa toàn bộ quy chuẩn/phụ lục."
+  },
+  "technicalSource": {
+    "officialUrl": null,
+    "localFile": "qcvn-41-2024-bgvt-full.pdf",
+    "sourceSha256": null,
+    "verificationStatus": "pending-official-full-source",
+    "requiredForProduction": true,
+    "notes": "Cần bản đầy đủ QCVN 41:2024/BGTVT có các phần/phụ lục kỹ thuật về từng biển. sourceSha256 của production traffic-signs.json phải là SHA-256 của file kỹ thuật đầy đủ này, không phải PDF Thông tư một trang."
+  },
+  "candidateReference": {
+    "url": "https://files.thuvienphapluat.vn/uploads/DOC2HTM/TC_921296.htm",
+    "role": "candidate-extraction-only",
+    "productionSource": false,
+    "notes": "Có thể dùng để tạo candidate/review workspace nhằm giảm nhập liệu, nhưng không được tự động promote thành production source of truth."
+  },
+  "notes": "Production catalog chỉ được publish sau khi technicalSource đã được xác minh và mọi record/ảnh cần thiết đã được đối chiếu với nguồn kỹ thuật đầy đủ."
 }
