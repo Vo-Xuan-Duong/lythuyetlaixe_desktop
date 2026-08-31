@@ -71,6 +71,8 @@ export async function bootstrapDataset(): Promise<DatasetBootstrapStatus> {
     };
   }
 
+  let pendingAssetVersion: string | null = null;
+
   try {
     const manifest = await fetchDatasetManifest(DATASET_MANIFEST_URL);
 
@@ -110,7 +112,7 @@ export async function bootstrapDataset(): Promise<DatasetBootstrapStatus> {
         importStatus: "up-to-date",
         source: "local-cache",
         warning:
-          "Remote package changed without a version bump, hoặc local package thiếu checksum phân phối có thể xác minh. Local immutable version was kept.",
+          "Package remote đã thay đổi nhưng không tăng version, hoặc local package chưa có checksum phân phối có thể xác minh. Ứng dụng giữ nguyên version local để bảo toàn tính bất biến.",
       };
     }
 
@@ -130,12 +132,24 @@ export async function bootstrapDataset(): Promise<DatasetBootstrapStatus> {
         180_000,
       );
       await installAssetArchive(manifest.version, assetBytes, manifest.assets.fileCount);
+      pendingAssetVersion = manifest.version;
     }
 
-    const result = await new DatasetImporter().import(dataset, {
-      contentSha256: manifest.sha256,
-      assetSha256: manifest.assets?.sha256 ?? null,
-    });
+    let result;
+    try {
+      result = await new DatasetImporter().import(dataset, {
+        contentSha256: manifest.sha256,
+        assetSha256: manifest.assets?.sha256 ?? null,
+      });
+    } catch (error) {
+      if (pendingAssetVersion) {
+        await removeAssetVersion(pendingAssetVersion).catch(() => undefined);
+        pendingAssetVersion = null;
+      }
+      throw error;
+    }
+
+    pendingAssetVersion = null;
 
     if (localState.version && localState.version !== result.version) {
       await removeAssetVersion(localState.version).catch(() => undefined);
@@ -148,6 +162,10 @@ export async function bootstrapDataset(): Promise<DatasetBootstrapStatus> {
       source: "remote",
     };
   } catch (error) {
+    if (pendingAssetVersion) {
+      await removeAssetVersion(pendingAssetVersion).catch(() => undefined);
+    }
+
     if (localState.ready && localState.version) {
       return {
         state: "ready",
