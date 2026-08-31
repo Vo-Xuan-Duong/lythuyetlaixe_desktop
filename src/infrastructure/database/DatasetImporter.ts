@@ -25,6 +25,7 @@ export interface ProductionDataset {
   version: string;
   validFrom: string;
   stage: "production";
+  /** SHA-256 provenance of the official source PDF, not questions.json. */
   sourceSha256?: string | null;
   questions: DatasetQuestion[];
 }
@@ -39,8 +40,17 @@ export interface LocalDatasetState {
   ready: boolean;
   version: string | null;
   sourceSha256: string | null;
+  contentSha256: string | null;
   assetSha256: string | null;
   questionCount: number;
+}
+
+export interface DatasetImportOptions {
+  force?: boolean;
+  /** SHA-256 of the exact published questions.json payload. */
+  contentSha256?: string | null;
+  /** SHA-256 of the published assets.zip payload, empty when there is no package. */
+  assetSha256?: string | null;
 }
 
 interface MetadataRow {
@@ -65,6 +75,10 @@ const CATEGORIES = [
 const CATEGORY_IDS: ReadonlyMap<string, number> = new Map(
   CATEGORIES.map((category) => [category.code, category.id]),
 );
+
+function normalizedChecksum(value?: string | null): string {
+  return (value ?? "").trim().toLowerCase().replace(/^sha256:/, "");
+}
 
 export function validateDatasetForImport(dataset: ProductionDataset): void {
   if (dataset.dataset !== "VN_GPLX_600") {
@@ -145,9 +159,10 @@ async function questionCount(db: Database): Promise<number> {
 
 export async function getLocalDatasetState(): Promise<LocalDatasetState> {
   const db = await getDatabase();
-  const [version, sourceSha256, assetSha256, count] = await Promise.all([
+  const [version, sourceSha256, contentSha256, assetSha256, count] = await Promise.all([
     metadataValue(db, "version"),
     metadataValue(db, "sourceSha256"),
+    metadataValue(db, "contentSha256"),
     metadataValue(db, "assetSha256"),
     questionCount(db),
   ]);
@@ -155,8 +170,9 @@ export async function getLocalDatasetState(): Promise<LocalDatasetState> {
   return {
     ready: Boolean(version) && count === EXPECTED_QUESTION_COUNT,
     version,
-    sourceSha256: sourceSha256 || null,
-    assetSha256: assetSha256 || null,
+    sourceSha256: sourceSha256?.trim() || null,
+    contentSha256: contentSha256?.trim() || null,
+    assetSha256: assetSha256?.trim() || null,
     questionCount: count,
   };
 }
@@ -168,6 +184,36 @@ async function upsertMetadata(db: Database, key: string, value: string): Promise
      ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
     [key, value],
   );
+}
+
+/**
+ * Builds before contentSha256 existed stored the questions.json checksum in
+ * sourceSha256. When the remote manifest proves that exact relationship, move
+ * the value to the correct key and clear the invalid PDF provenance.
+ */
+export async function migrateLegacyContentChecksum(remoteContentSha256: string): Promise<boolean> {
+  const normalizedRemote = normalizedChecksum(remoteContentSha256);
+  if (!normalizedRemote) return false;
+
+  const db = await getDatabase();
+  const [currentContent, currentSource] = await Promise.all([
+    metadataValue(db, "contentSha256"),
+    metadataValue(db, "sourceSha256"),
+  ]);
+
+  if (normalizedChecksum(currentContent)) return false;
+  if (normalizedChecksum(currentSource) !== normalizedRemote) return false;
+
+  await db.execute("BEGIN IMMEDIATE TRANSACTION");
+  try {
+    await upsertMetadata(db, "contentSha256", normalizedRemote);
+    await upsertMetadata(db, "sourceSha256", "");
+    await db.execute("COMMIT");
+  } catch (error) {
+    await db.execute("ROLLBACK");
+    throw error;
+  }
+  return true;
 }
 
 async function seedCategories(db: Database): Promise<void> {
@@ -233,25 +279,26 @@ async function upsertQuestion(db: Database, question: DatasetQuestion): Promise<
 export class DatasetImporter {
   async import(
     dataset: ProductionDataset,
-    options: { force?: boolean; assetSha256?: string | null } = {},
+    options: DatasetImportOptions = {},
   ): Promise<DatasetImportResult> {
     validateDatasetForImport(dataset);
     const db = await getDatabase();
 
-    const [currentVersion, currentSha256, currentAssetSha256, currentCount] = await Promise.all([
+    const [currentVersion, currentContentSha256, currentAssetSha256, currentCount] = await Promise.all([
       metadataValue(db, "version"),
-      metadataValue(db, "sourceSha256"),
+      metadataValue(db, "contentSha256"),
       metadataValue(db, "assetSha256"),
       questionCount(db),
     ]);
 
-    const requestedAssetSha256 = options.assetSha256 ?? "";
+    const requestedContentSha256 = normalizedChecksum(options.contentSha256);
+    const requestedAssetSha256 = normalizedChecksum(options.assetSha256);
     if (
       !options.force &&
       currentVersion === dataset.version &&
       currentCount === EXPECTED_QUESTION_COUNT &&
-      (!dataset.sourceSha256 || currentSha256 === dataset.sourceSha256) &&
-      currentAssetSha256 === requestedAssetSha256
+      normalizedChecksum(currentContentSha256) === requestedContentSha256 &&
+      normalizedChecksum(currentAssetSha256) === requestedAssetSha256
     ) {
       return {
         status: "up-to-date",
@@ -270,7 +317,8 @@ export class DatasetImporter {
       await upsertMetadata(db, "dataset", dataset.dataset);
       await upsertMetadata(db, "version", dataset.version);
       await upsertMetadata(db, "validFrom", dataset.validFrom);
-      await upsertMetadata(db, "sourceSha256", dataset.sourceSha256 ?? "");
+      await upsertMetadata(db, "sourceSha256", normalizedChecksum(dataset.sourceSha256));
+      await upsertMetadata(db, "contentSha256", requestedContentSha256);
       await upsertMetadata(db, "assetSha256", requestedAssetSha256);
       await upsertMetadata(db, "importedAt", new Date().toISOString());
       await db.execute("COMMIT");
