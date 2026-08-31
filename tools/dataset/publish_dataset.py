@@ -2,8 +2,8 @@
 """Build the remote distribution package for the validated production dataset.
 
 The application does not bundle production questions or question images. This
-publisher writes questions.json, an optional assets.zip containing every image
-referenced by the dataset, and dataset-manifest.json with integrity metadata.
+publisher keeps the mutable manifest at the package root and writes immutable
+versioned payloads below releases/<version>/ for safe object-storage publishing.
 """
 
 from __future__ import annotations
@@ -12,7 +12,6 @@ import argparse
 import hashlib
 import json
 import re
-import shutil
 import zipfile
 from pathlib import Path, PurePosixPath
 
@@ -23,6 +22,7 @@ DEFAULT_OUTPUT_DIR = ROOT / "dist" / "dataset"
 EXPECTED_COUNT = 600
 ALLOWED_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
 SHA256_RE = re.compile(r"^(?:sha256:)?[0-9a-fA-F]{64}$")
+VERSION_RE = re.compile(r"^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$")
 
 
 def sha256_file(path: Path) -> str:
@@ -37,6 +37,12 @@ def normalize_sha256(value: object) -> str:
     if not isinstance(value, str) or not SHA256_RE.fullmatch(value.strip()):
         raise ValueError("dataset sourceSha256 must contain the official source PDF SHA-256")
     return value.strip().lower().removeprefix("sha256:")
+
+
+def normalize_version(value: object) -> str:
+    if not isinstance(value, str) or not VERSION_RE.fullmatch(value.strip()):
+        raise ValueError("dataset version must be a safe release identifier")
+    return value.strip()
 
 
 def normalize_asset_path(value: str) -> str:
@@ -80,6 +86,17 @@ def build_asset_archive(asset_paths: list[str], assets_root: Path, destination: 
             archive.write(source, arcname=relative)
 
 
+def write_immutable_payload(path: Path, content: bytes, label: str) -> None:
+    if path.exists():
+        current = path.read_bytes()
+        if current != content:
+            raise ValueError(
+                f"{label} for this version already exists with different content; bump dataset version"
+            )
+        return
+    path.write_bytes(content)
+
+
 def publish(source: Path, assets_root: Path, output_dir: Path) -> tuple[Path, Path, Path | None]:
     dataset = json.loads(source.read_text(encoding="utf-8"))
     if dataset.get("dataset") != "VN_GPLX_600":
@@ -89,50 +106,61 @@ def publish(source: Path, assets_root: Path, output_dir: Path) -> tuple[Path, Pa
     questions = dataset.get("questions")
     if not isinstance(questions, list) or len(questions) != EXPECTED_COUNT:
         raise ValueError(f"expected {EXPECTED_COUNT} questions before publish")
-    if not dataset.get("version"):
-        raise ValueError("dataset version is required")
+
+    version = normalize_version(dataset.get("version"))
     if not dataset.get("validFrom"):
         raise ValueError("dataset validFrom is required")
 
     source_checksum = normalize_sha256(dataset.get("sourceSha256"))
+    dataset["version"] = version
     dataset["sourceSha256"] = source_checksum
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    dataset_path = output_dir / "questions.json"
-    manifest_path = output_dir / "dataset-manifest.json"
-    asset_archive_path = output_dir / "assets.zip"
+    release_dir = output_dir / "releases" / version
+    release_dir.mkdir(parents=True, exist_ok=True)
 
-    # Write the normalized production payload instead of byte-copying an input
-    # that could contain a prefixed/mixed-case provenance hash.
-    dataset_path.write_text(
-        json.dumps(dataset, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    dataset_path = release_dir / "questions.json"
+    manifest_path = output_dir / "dataset-manifest.json"
+    asset_archive_path = release_dir / "assets.zip"
+
+    normalized_dataset_bytes = (
+        json.dumps(dataset, ensure_ascii=False, indent=2) + "\n"
+    ).encode("utf-8")
+    write_immutable_payload(dataset_path, normalized_dataset_bytes, "questions.json")
+
     dataset_checksum = sha256_file(dataset_path)
     asset_paths = referenced_assets(questions)
 
     manifest: dict[str, object] = {
         "dataset": dataset["dataset"],
-        "version": dataset["version"],
+        "version": version,
         "validFrom": dataset["validFrom"],
         "stage": dataset["stage"],
-        "datasetUrl": "questions.json",
+        "datasetUrl": f"releases/{version}/questions.json",
         "sha256": dataset_checksum,
         "sizeBytes": dataset_path.stat().st_size,
         "sourceSha256": source_checksum,
     }
 
     if asset_paths:
-        build_asset_archive(asset_paths, assets_root, asset_archive_path)
+        temporary_archive = release_dir / ".assets.zip.tmp"
+        if temporary_archive.exists():
+            temporary_archive.unlink()
+        build_asset_archive(asset_paths, assets_root, temporary_archive)
+        archive_bytes = temporary_archive.read_bytes()
+        temporary_archive.unlink()
+        write_immutable_payload(asset_archive_path, archive_bytes, "assets.zip")
         manifest["assets"] = {
-            "url": "assets.zip",
+            "url": f"releases/{version}/assets.zip",
             "format": "zip",
             "sha256": sha256_file(asset_archive_path),
             "sizeBytes": asset_archive_path.stat().st_size,
             "fileCount": len(asset_paths),
         }
     elif asset_archive_path.exists():
-        asset_archive_path.unlink()
+        raise ValueError(
+            "assets.zip already exists for this version but current dataset references no assets; bump dataset version"
+        )
 
     manifest_path.write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
@@ -158,9 +186,9 @@ def main() -> int:
     except (OSError, ValueError, json.JSONDecodeError, zipfile.BadZipFile) as error:
         raise SystemExit(f"Cannot publish dataset: {error}") from error
 
-    print(f"[ok] dataset package: {dataset_path}")
+    print(f"[ok] dataset payload: {dataset_path}")
     if asset_path:
-        print(f"[ok] asset package: {asset_path}")
+        print(f"[ok] asset payload: {asset_path}")
     print(f"[ok] dataset manifest: {manifest_path}")
     return 0
 
