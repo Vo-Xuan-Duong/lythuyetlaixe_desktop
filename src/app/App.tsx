@@ -4,9 +4,9 @@ import { DashboardPage } from "../features/dashboard/DashboardPage";
 import { ExamPage } from "../features/exam/ExamPage";
 import { LearningPage } from "../features/learning/LearningPage";
 import { QuestionCollectionPage } from "../features/learning/QuestionCollectionPage";
-import { FeaturePlaceholder } from "../features/placeholder/FeaturePlaceholder";
 import { ReviewPage } from "../features/review/ReviewPage";
 import { DatasetSetupPage } from "../features/setup/DatasetSetupPage";
+import { SettingsPage } from "../features/settings/SettingsPage";
 import { StatisticsPage } from "../features/statistics/StatisticsPage";
 import type { AppSection } from "./navigation";
 import { useDatasetBootstrap } from "./useDatasetBootstrap";
@@ -18,7 +18,7 @@ export function App() {
   const content = useMemo(() => {
     switch (section) {
       case "dashboard":
-        return <DashboardPage onNavigate={setSection} />;
+        return <DashboardPage datasetStatus={datasetStatus} onNavigate={setSection} />;
       case "learning":
         return <LearningPage datasetStatus={datasetStatus} />;
       case "critical":
@@ -52,15 +52,9 @@ export function App() {
       case "statistics":
         return <StatisticsPage datasetStatus={datasetStatus} />;
       case "settings":
-        return (
-          <FeaturePlaceholder
-            eyebrow="Application"
-            title="Cài đặt"
-            description="Phiên bản dataset, tùy chọn giao diện, cấu hình học và các thiết lập platform sẽ được đặt tại đây."
-          />
-        );
+        return <SettingsPage datasetStatus={datasetStatus} onCheckDataset={retryDataset} />;
     }
-  }, [datasetStatus, section]);
+  }, [datasetStatus, retryDataset, section]);
 
   if (datasetStatus.state === "checking" || datasetStatus.state === "error") {
     return <DatasetSetupPage status={datasetStatus} onRetry={retryDataset} />;
