@@ -35,10 +35,12 @@ export interface TrafficSignRecord {
   imageSelection?: TrafficSignImageSelection;
   keywords: string[];
   sourceVersion: string;
-  sourceSection: string;
-  sourcePages: number[];
-  verifiedBy: string;
-  verifiedAt: string;
+  // Production payloads require these provenance fields. They remain optional
+  // in the read model because SQLite deliberately stores only catalog fields.
+  sourceSection?: string;
+  sourcePages?: number[];
+  verifiedBy?: string;
+  verifiedAt?: string;
 }
 
 export interface TrafficSignsDataset {
