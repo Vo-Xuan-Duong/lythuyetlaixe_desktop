@@ -2,15 +2,16 @@
 """Promote a fully verified dataset candidate to data/processed/questions.json.
 
 Promotion is intentionally strict. It refuses candidates with parser warnings,
-unresolved answers/images, null answers, or anything other than exactly one
-correct answer per question. The Node production validator remains the final
-release gate.
+unresolved answers/images, missing source provenance, null answers, or anything
+other than exactly one correct answer per question. The Node production validator
+remains the final release gate.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import re
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,6 +20,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_INPUT = ROOT / "data" / "raw" / "questions.images-reviewed.json"
 DEFAULT_OUTPUT = ROOT / "data" / "processed" / "questions.json"
+SHA256_RE = re.compile(r"^(?:sha256:)?[0-9a-fA-F]{64}$")
 
 
 def promotion_errors(dataset: dict[str, Any]) -> list[str]:
@@ -26,6 +28,10 @@ def promotion_errors(dataset: dict[str, Any]) -> list[str]:
     questions = dataset.get("questions")
     if not isinstance(questions, list):
         return ["questions must be an array"]
+
+    source_sha256 = dataset.get("sourceSha256")
+    if not isinstance(source_sha256, str) or not SHA256_RE.fullmatch(source_sha256.strip()):
+        errors.append("sourceSha256 must contain the official source PDF SHA-256")
 
     if len(questions) != 600:
         errors.append(f"expected 600 questions, found {len(questions)}")
@@ -93,6 +99,7 @@ def promote(dataset: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("dataset cannot be promoted:\n- " + "\n- ".join(errors))
 
     result = deepcopy(dataset)
+    result["sourceSha256"] = str(result["sourceSha256"]).strip().lower().removeprefix("sha256:")
     result["stage"] = "production"
     result["promotedAt"] = datetime.now(timezone.utc).isoformat()
     result["promotion"] = {
