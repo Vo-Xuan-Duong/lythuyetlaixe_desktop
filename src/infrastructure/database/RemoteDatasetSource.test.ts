@@ -27,7 +27,7 @@ describe("RemoteDatasetSource", () => {
         datasetUrl: "questions.json",
         sha256: "a".repeat(64),
       }),
-    })) as typeof fetch;
+    })) as unknown as typeof fetch;
 
     const manifest = await fetchDatasetManifest(
       "https://data.example.com/dataset-manifest.json",
@@ -52,7 +52,7 @@ describe("RemoteDatasetSource", () => {
       ok: true,
       status: 200,
       arrayBuffer: async () => bytes.buffer,
-    })) as typeof fetch;
+    })) as unknown as typeof fetch;
 
     const manifest: RemoteDatasetManifest = {
       dataset: "VN_GPLX_600",
