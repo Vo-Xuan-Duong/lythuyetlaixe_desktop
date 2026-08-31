@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import type { AppSection } from "../../app/navigation";
-import { useTrafficSignsBootstrap } from "../../app/useTrafficSignsBootstrap";
 import {
   TRAFFIC_SIGN_KNOWLEDGE_SOURCE,
   trafficSignKnowledgeGroups,
 } from "../../data/trafficSignsKnowledge";
 import type { TrafficSignGroupCode } from "../../domain/entities/trafficSign";
 import type { DatasetBootstrapStatus } from "../../infrastructure/database/DatasetBootstrap";
+import type { TrafficSignsBootstrapStatus } from "../../infrastructure/database/TrafficSignsBootstrap";
 import {
   SqliteTrafficSignsRepository,
   type TrafficSignCatalogItem,
@@ -14,7 +14,9 @@ import {
 
 interface TrafficSignsKnowledgePageProps {
   datasetStatus: DatasetBootstrapStatus;
+  trafficSignsStatus: TrafficSignsBootstrapStatus;
   onNavigate: (section: AppSection) => void;
+  onRetryTrafficSigns: () => void;
 }
 
 const repository = new SqliteTrafficSignsRepository();
@@ -30,10 +32,11 @@ const GROUP_FILTERS: Array<{ code?: TrafficSignGroupCode; label: string }> = [
 
 export function TrafficSignsKnowledgePage({
   datasetStatus,
+  trafficSignsStatus: signsStatus,
   onNavigate,
+  onRetryTrafficSigns: retrySigns,
 }: TrafficSignsKnowledgePageProps) {
   const questionsReady = datasetStatus.state === "ready";
-  const { status: signsStatus, retry: retrySigns } = useTrafficSignsBootstrap();
   const [groupCode, setGroupCode] = useState<TrafficSignGroupCode>();
   const [search, setSearch] = useState("");
   const [items, setItems] = useState<TrafficSignCatalogItem[]>([]);
@@ -46,6 +49,7 @@ export function TrafficSignsKnowledgePage({
     if (signsStatus.state !== "ready") {
       setItems([]);
       setTotal(0);
+      setLoading(false);
       return () => {
         active = false;
       };
