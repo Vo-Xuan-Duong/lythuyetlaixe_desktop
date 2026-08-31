@@ -94,9 +94,6 @@ export function App() {
         );
       case "statistics":
         return <StatisticsPage datasetStatus={datasetStatus} />;
-      case "signs":
-      case "settings":
-        return null;
     }
   }, [datasetStatus, navigate, retryDataset, section]);
 
