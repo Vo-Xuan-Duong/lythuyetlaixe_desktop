@@ -2,193 +2,174 @@
 
 > Branch: `main`.
 >
-> **CODED** = đã triển khai bằng code/static review. **LOCAL VERIFY** = cần chạy trên máy phát triển. **DEVICE VERIFY** = cần thiết bị/emulator. **DATA BLOCKER** = cần dữ liệu chính thức đã kiểm chứng. GitHub Actions đang manual-only.
+> **CODED** = đã triển khai bằng code/static review. **LOCAL VERIFY** = cần chạy trên máy phát triển. **DEVICE VERIFY** = cần thiết bị/emulator. **DATA BLOCKER** = cần dữ liệu chính thức đã kiểm chứng. GitHub Actions manual-only.
 
 ## Tóm tắt
 
-Application feature layer hiện gần như hoàn chỉnh. Phần còn ngăn project thành production release không phải là thiếu màn hình chính, mà là:
+Application feature layer gần hoàn chỉnh. Production blockers hiện chủ yếu là:
 
-1. local compile/runtime verification sau các dependency/config mới;
-2. production dataset 600 câu + ảnh đã manual verify;
-3. production HTTPS endpoint;
-4. Windows installer/device verification;
-5. Android init/device/signing nếu tiếp tục target mobile.
+1. local compile/runtime verification;
+2. production 600 câu + ảnh đã verify;
+3. production catalog biển báo từng biển + ảnh đã verify;
+4. Cloudflare R2/custom domain + CORS/CSP;
+5. Windows/Android verification.
 
 ## Application core
 
 | Khu vực | Trạng thái | Ghi chú |
 | --- | --- | --- |
-| Tauri 2 + React + TypeScript | CODED | Shared Desktop/Android foundation |
-| SQLite schema/repositories | CODED | Dataset, progress, bookmark, exam history |
-| Remote dataset bootstrap | CODED | Manifest → bounded verify → runtime validate → SQLite |
-| Remote image assets | CODED | bounded ZIP → safe AppData install → rollback on failed import |
-| Offline fallback | CODED | Có local dataset thì mất mạng vẫn dùng local |
-| Immutable dataset version | CODED | Same version/package checksum đổi không overwrite |
-| Device preferences | CODED | Tauri Store + browser fallback/migration |
-| Runtime diagnostics | CODED | SQLite/data/checksum/assets/store/notification |
-| Production CSP | CODED | `devCsp` disabled; exact dataset host còn deployment task |
-| FS least privilege | CODED | Chỉ command + scope cần cho `$APPDATA/dataset-assets/**` |
+| Tauri 2 + React + TypeScript | CODED | Shared Desktop/Android |
+| SQLite migration v1 | CODED | questions/progress/exam |
+| SQLite migration v2 | CODED | `traffic_sign_metadata` + `traffic_signs` |
+| Question bootstrap | CODED | `VN_GPLX_600` |
+| Traffic-sign bootstrap | CODED | `VN_TRAFFIC_SIGNS` |
+| Offline fallback | CODED | độc lập cho từng dataset |
+| Immutable versions | CODED | same version + checksum đổi không overwrite |
+| Runtime diagnostics | CODED | kiểm tra riêng hai dataset |
+| FS least privilege | CODED | hai AppData asset roots |
+| Production CSP foundation | CODED | exact R2 origin còn deployment task |
 
-## Dataset integrity contract
+## Hai dataset độc lập
 
-Ba checksum đã được tách hoàn toàn:
+### 600 câu
 
 ```text
-sourceSha256  = SHA-256 PDF nguồn chính thức
-contentSha256 = SHA-256 questions.json đã cài
-assetSha256   = SHA-256 assets.zip đã cài
+env      VITE_QUESTIONS_MANIFEST_URL
+metadata dataset_metadata
+assets   $APPDATA/dataset-assets/<version>/
 ```
 
-Đã code:
+Integrity:
 
-- legacy metadata migration khi hash package cũ bị lưu nhầm vào `sourceSha256`;
-- manifest bắt buộc source provenance;
-- manifest ↔ `questions.json` source provenance cross-check;
-- HTTPS-only production URL, localhost HTTP dev exception;
-- same-origin policy cho manifest/questions/assets;
-- redirect URL validation;
-- hard size limits cho manifest/questions/assets;
-- exact SHA-256 validation;
-- failed asset install/import cleanup;
-- runtime importer kiểm tra lại production contract.
+```text
+sourceSha256  = PDF nguồn chính thức
+contentSha256 = questions.json
+assetSha256   = assets.zip
+```
 
-## Learning / Critical / Review
+### Biển báo
+
+```text
+env      VITE_TRAFFIC_SIGNS_MANIFEST_URL
+metadata traffic_sign_metadata
+table    traffic_signs
+assets   $APPDATA/traffic-sign-assets/<version>/
+```
+
+Integrity:
+
+```text
+sourceSha256  = tài liệu/quy chuẩn nguồn
+contentSha256 = traffic-signs.json
+assetSha256   = traffic-sign-assets.zip
+```
+
+Update hai dataset không phụ thuộc nhau.
+
+## Learning / Critical / Review / Exam / Statistics
 
 | Feature | Trạng thái |
 | --- | --- |
 | Catalog 600 câu / 6 chủ đề | CODED |
-| Filter chưa học / đã học / sai / bookmark | CODED |
-| LearningSession / answer feedback | CODED |
-| Progress/mastery 0–4 | CODED |
-| `nextReviewAt` spaced repetition | CODED |
-| Bookmark | CODED |
-| Review sequence | CODED |
-| Due / weak / wrong queues | CODED |
-| 60 câu điểm liệt page/progress | CODED |
-| Critical-only wrong review | CODED |
-| Exam answers cập nhật review progress | CODED |
-| Explanation | DATA BLOCKER |
-| 600-question E2E | DATA BLOCKER / LOCAL VERIFY |
-
-## Exam
-
-| Feature | Trạng thái |
-| --- | --- |
-| ExamConfig theo hạng/ngày hiệu lực | CODED |
-| Quota selector | CODED |
-| Timer / navigator | CODED |
-| Scoring / critical fail | CODED |
-| Session + answers persistence | CODED |
-| Duplicate-submit guard | CODED |
+| Filter/progress/mastery/bookmark | CODED |
+| 60 câu điểm liệt | CODED |
+| Due/weak/wrong review queues | CODED |
+| Exam config/timer/scoring/history | CODED |
+| Exam answers → learning progress | CODED |
 | Result review từng câu | CODED |
-| Default license via Store | CODED |
-| Android Back/abandon confirm | CODED — DEVICE VERIFY |
-| E2E đề thật | DATA BLOCKER / LOCAL VERIFY |
+| Dashboard/Statistics SQLite | CODED |
+| Explanation production | DATA BLOCKER |
+| E2E với 600 câu thật | DATA/LOCAL VERIFY |
 
-## Statistics / Dashboard
-
-Tổng tiến độ, accuracy tổng/theo chủ đề, mastered, due review, critical progress, weakest questions, exam history, pass rate, average score và Dashboard SQLite đều **CODED**.
-
-## Settings / native utilities
+## Kiến thức / catalog biển báo
 
 | Feature | Trạng thái |
 | --- | --- |
-| App/Tauri/identifier info | CODED |
-| Dataset metadata + 3 checksum riêng | CODED |
-| Local record counts | CODED |
-| Dataset update check | CODED |
-| Reset progress/bookmark/exam/all user state | CODED |
-| Default exam license | CODED |
-| Daily reminder preference | CODED |
-| Notification permission/test | CODED — LOCAL/DEVICE VERIFY |
-| Reminder scheduling | CODED — DEVICE VERIFY |
-| Reminder restore on native startup | CODED — DEVICE VERIFY |
-| Runtime Diagnostics panel | CODED |
+| 5 nhóm biển báo built-in | CODED |
+| Navigation/Desktop/Mobile | CODED |
+| Hoạt động khi 600 câu chưa có | CODED |
+| Domain model `TrafficSignRecord` | CODED |
+| Remote manifest riêng | CODED |
+| Runtime source/content/asset verification | CODED |
+| SQLite importer/repository | CODED |
+| Search theo mã/tên/ý nghĩa/keyword | CODED |
+| Filter theo 5 nhóm | CODED |
+| Detail card + ảnh AppData | CODED |
+| Validator riêng `signs:validate` | CODED |
+| Publisher riêng `signs:publish` | CODED |
+| Catalog production từng biển | DATA BLOCKER |
+| Hình/ý nghĩa/phạm vi/ngoại lệ verified | DATA BLOCKER |
+| E2E first-run/offline/update | LOCAL VERIFY |
 
-## Dataset tooling
+## Dataset 600 câu tooling
+
+Downloader, extractor, parser, underline resolver, manual answer/image review, promotion gate, validator, publisher, status/review workspace đều **CODED**.
+
+Còn:
+
+- chạy PDF thật;
+- calibrate underline;
+- manual unresolved review;
+- production package.
+
+## Traffic-sign tooling
 
 | Stage | Trạng thái |
 | --- | --- |
-| Official source metadata | CODED |
-| Downloader + source SHA-256 | CODED |
-| PyMuPDF extractor | CODED |
-| Parser | CODED |
-| Underline resolver | CODED |
-| Manual answer review + provenance | CODED |
-| Safe image candidate extraction | CODED |
-| Manual image review | CODED |
-| HTML review workspace | CODED |
-| Promotion provenance/image gate | CODED |
-| Final validator | CODED |
-| Runtime-equivalent category/critical/license/image invariants | CODED |
-| Remote publisher + source/content/asset integrity | CODED |
-| `dataset:status` + checkpoint commands | CODED |
-| Chạy PDF thật | LOCAL DATA WORK |
-| Calibrate underline threshold | DATA WORK |
-| Manual unresolved answer review | DATA WORK |
-| Visual image review | DATA WORK |
-| Production package | DATA BLOCKER |
+| Source workspace riêng | CODED |
+| Processed workspace riêng | CODED |
+| Runtime schema/validation contract | CODED |
+| Asset ZIP safe install | CODED |
+| Local validator | CODED |
+| Local publisher | CODED |
+| Official per-sign data extraction/manual verification | DATA WORK |
+| Production `traffic-signs.json` | DATA BLOCKER |
 
-## Windows Desktop production
+## Windows Desktop
 
 | Feature | Trạng thái |
 | --- | --- |
-| NSIS platform config | CODED |
-| `release:check` | CODED |
-| Local release command | CODED |
-| Changelog/release docs | CODED |
-| CSP / FS permission hardening | CODED |
+| NSIS config/release command | CODED |
+| release/version docs | CODED |
 | Auto GitHub validation | DISABLED — manual-only |
-| `pnpm-lock.yaml` sau dependency mới | LOCAL PENDING |
+| `pnpm install` / lockfile | LOCAL PENDING |
 | Frontend/Rust compile | LOCAL VERIFY |
-| NSIS build | LOCAL VERIFY |
-| Windows 10/11 install/upgrade | LOCAL VERIFY |
-| Code signing | OPTIONAL / NOT CONFIGURED |
+| migration v2 runtime | LOCAL VERIFY |
+| first-run/offline/update cả hai dataset | LOCAL VERIFY |
+| NSIS Windows 10/11 | LOCAL VERIFY |
+| code signing | OPTIONAL |
 
-## Android foundation
+## Android
 
-| Feature | Trạng thái |
-| --- | --- |
-| Mobile layout / bottom navigation | CODED |
-| `tauri.android.conf.json` / minSdk 24 | CODED |
-| AppData asset path | CODED — DEVICE VERIFY |
-| Store preferences | CODED — DEVICE VERIFY |
-| Native Back stack | CODED — DEVICE VERIFY |
-| Notification reminder | CODED — DEVICE VERIFY |
-| Startup reminder restore | CODED — DEVICE VERIFY |
-| Debug APK / release APK / AAB commands | CODED — LOCAL VERIFY |
-| Android docs | CODED |
-| Android SDK/JDK/NDK/Rust targets | LOCAL ENV PENDING |
-| `tauri android init` | LOCAL VERIFY PENDING |
-| Plugin/device behavior | DEVICE VERIFY PENDING |
-| Signing/keystore | PENDING |
+Foundation responsive/AppData/Store/Back/Notification/build scripts đã **CODED**.
 
-## Security/deployment còn để local
+Cần local/device verify:
 
-### Khi production host được chốt
+- Android SDK/JDK/NDK/Rust targets;
+- `tauri android init`;
+- SQLite migration v2;
+- hai asset roots;
+- first-run/offline/update của hai dataset;
+- notification;
+- APK/AAB/signing.
 
-- tạo `.env.production`;
-- đổi CSP `connect-src` từ generic `https:` sang đúng origin;
-- cấu hình CORS cho WebView;
-- tùy nhu cầu, đổi sang Tauri HTTP plugin với scope đúng host.
+## Deployment còn lại
 
-### Optional sau release đầu
+- Cloudflare R2 bucket/custom domain;
+- upload questions và traffic-sign packages vào hai prefix riêng;
+- `.env.production` với hai manifest URL;
+- CORS GET/HEAD;
+- khóa CSP về exact origin;
+- verify clean first-run.
 
-- signed manifest/public-key verification;
-- binary auto-updater;
-- Windows code signing tùy kênh phân phối;
-- cloud sync.
+## Blocker Desktop release candidate
 
-## Blocker để có Desktop release candidate
+1. `pnpm install` + compile/unit/Rust checks local.
+2. Hoàn thiện 600 câu production.
+3. Hoàn thiện catalog biển báo production nếu đưa vào 1.0.
+4. Publish hai package lên R2.
+5. First-run/offline/update/rollback verify độc lập.
+6. Runtime Diagnostics không còn lỗi production.
+7. Build/test NSIS Windows 10/11.
 
-1. `pnpm install` và commit lockfile sau khi xác minh.
-2. Frontend/unit/Rust checks local.
-3. Chạy PDF pipeline thật.
-4. Manual answer/image verification.
-5. Production validator/publisher local.
-6. Upload HTTPS package + `.env.production`.
-7. First-run/offline/update/rollback local verification.
-8. Runtime Diagnostics không còn lỗi production.
-9. Build/test NSIS Windows 10/11.
-
-Checklist chi tiết: [`LOCAL_HANDOFF.md`](./LOCAL_HANDOFF.md).
+Checklist: [`LOCAL_HANDOFF.md`](./LOCAL_HANDOFF.md).
