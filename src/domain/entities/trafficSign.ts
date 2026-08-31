@@ -35,6 +35,10 @@ export interface TrafficSignRecord {
   imageSelection?: TrafficSignImageSelection;
   keywords: string[];
   sourceVersion: string;
+  sourceSection: string;
+  sourcePages: number[];
+  verifiedBy: string;
+  verifiedAt: string;
 }
 
 export interface TrafficSignsDataset {
