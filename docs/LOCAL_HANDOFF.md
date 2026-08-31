@@ -1,12 +1,10 @@
 # Local maintainer handoff
 
-File này là checklist để tiếp tục project trên máy local sau giai đoạn code/static-review.
+Checklist tiếp tục project trên máy local sau giai đoạn code/static-review.
 
-> Không coi các mục dưới đây là đã pass cho tới khi chính maintainer chạy/xác minh trên máy hoặc thiết bị thật.
+> Không coi mục nào là đã pass cho tới khi maintainer chạy/xác minh trên máy hoặc thiết bị thật.
 
 ## 1. Dependency / lockfile
-
-Repository pin `pnpm@10.34.5`.
 
 ```powershell
 corepack enable
@@ -14,7 +12,7 @@ pnpm --version
 pnpm install
 ```
 
-Sau khi dependency graph hoạt động ổn định, kiểm tra và commit `pnpm-lock.yaml`. Không tạo lockfile thủ công.
+Sau khi dependency graph ổn định, commit `pnpm-lock.yaml`. Không tạo lockfile thủ công.
 
 ## 2. Compile / unit checks local
 
@@ -26,30 +24,25 @@ cargo check --manifest-path src-tauri/Cargo.toml
 pnpm dataset:test
 ```
 
-Các dependency native mới cần chú ý: FS, Store, Notification và SQL plugin của Tauri 2.
+Các plugin native cần chú ý: SQL, FS, Store, Notification.
 
-## 3. Remote dataset contract
-
-Ba hash độc lập:
+## 3. Hai remote dataset
 
 ```text
-sourceSha256  = PDF nguồn chính thức
-contentSha256 = questions.json được cài
-assetSha256   = assets.zip được cài
+QUESTIONS
+  env: VITE_QUESTIONS_MANIFEST_URL
+  metadata: dataset_metadata
+  assets: $APPDATA/dataset-assets/<version>/
+
+TRAFFIC SIGNS
+  env: VITE_TRAFFIC_SIGNS_MANIFEST_URL
+  metadata: traffic_sign_metadata
+  assets: $APPDATA/traffic-sign-assets/<version>/
 ```
 
-Manifest production bắt buộc có `dataset`, `version`, `validFrom`, `stage`, `datasetUrl`, `sha256`, `sourceSha256`, `sizeBytes`; nếu có ảnh thì thêm `assets` với URL/SHA-256/size/fileCount.
+Hai package có source/content/asset SHA-256 riêng và update độc lập.
 
-Runtime policy:
-
-- production URL phải HTTPS; HTTP chỉ cho localhost development;
-- questions/assets phải cùng origin với manifest;
-- redirect cuối vẫn phải là URL hợp lệ;
-- hard download limits được áp dụng;
-- provenance manifest phải khớp `questions.json`;
-- runtime importer validate lại 600 câu/category/critical/license/answers/image paths.
-
-## 4. Chạy dataset thật
+## 4. Hoàn thiện bộ 600 câu
 
 ```powershell
 python -m pip install -r tools/dataset/requirements.txt
@@ -57,9 +50,14 @@ pnpm dataset:prepare:download
 pnpm dataset:status
 ```
 
-Kiểm tra parse đúng 600 câu, parser warning, answer unresolved và underline score/margin.
+Yêu cầu trước promotion:
 
-Manual answer review dùng:
+- parse đủ 600 câu;
+- manual answer unresolved = 0;
+- manual image unresolved = 0;
+- provenance nguồn đầy đủ.
+
+Manual answer review:
 
 ```text
 data/source/manual-answer-review.json
@@ -71,84 +69,128 @@ Sau đó:
 pnpm dataset:after-answer-review
 ```
 
-Mở `data/raw/review-workspace.html` để hỗ trợ xem unresolved/image candidates.
+Review workspace:
 
-Manual image review dùng:
+```text
+data/raw/review-workspace.html
+```
+
+Manual image review:
 
 ```text
 data/source/manual-image-review.json
 ```
 
-Khi toàn bộ answer/image đã xác minh:
+Final:
 
 ```powershell
 pnpm dataset:finalize
 ```
 
-Không dùng AI để điền đáp án/explanation chính thức nếu không có nguồn xác minh.
+## 5. Hoàn thiện catalog biển báo
 
-## 5. Production endpoint
+Catalog từng biển **chưa được điền tự động**. Chỉ thêm record khi đã đối chiếu quy chuẩn/tài liệu chính thức.
 
-Sau publish:
+Workspace:
 
 ```text
-dist/dataset/
-├── dataset-manifest.json
-├── questions.json
-└── assets.zip
+data/traffic-signs/
+├── source/
+└── processed/
+    ├── traffic-signs.json
+    └── assets/
+        └── signs/...
 ```
 
-Upload `questions.json`/`assets.zip` trước, `dataset-manifest.json` cuối cùng.
+Validate/publish:
+
+```powershell
+pnpm signs:validate
+pnpm signs:publish
+```
+
+Output:
+
+```text
+dist/traffic-signs/
+├── manifest.json
+├── traffic-signs.json
+└── traffic-sign-assets.zip
+```
+
+Schema/contract: [`TRAFFIC_SIGNS.md`](./TRAFFIC_SIGNS.md).
+
+## 6. Production endpoint / Cloudflare R2
 
 Tạo `.env.production`:
 
 ```env
-VITE_DATASET_MANIFEST_URL=https://<production-host>/lythuyetlaixe/dataset-manifest.json
+VITE_QUESTIONS_MANIFEST_URL=https://<production-host>/lythuyetlaixe/questions/dataset-manifest.json
+VITE_TRAFFIC_SIGNS_MANIFEST_URL=https://<production-host>/lythuyetlaixe/traffic-signs/manifest.json
 ```
 
-Host cần CORS phù hợp vì transport hiện dùng Web Fetch API.
+R2 layout đề xuất:
 
-Khi host được chốt, thay `connect-src ... https:` trong `src-tauri/tauri.conf.json` bằng đúng production origin. Nếu chuyển sang Tauri HTTP plugin, scope capability chỉ đúng host đó.
+```text
+lythuyetlaixe/
+├── questions/
+│   └── ...
+└── traffic-signs/
+    └── ...
+```
 
-## 6. Tauri runtime verification
+Host cần CORS GET/HEAD cho WebView. Khi domain được chốt, đổi CSP `connect-src ... https:` thành đúng production origin.
+
+Cho từng dataset, upload payload trước và manifest cuối cùng.
+
+## 7. Tauri runtime verification
 
 ```powershell
 pnpm tauri:dev
 ```
 
-Test case tối thiểu:
+### 600 câu
 
-1. DB sạch → first-run tải manifest/questions/assets.
+1. DB sạch → first-run tải question manifest/questions/assets.
 2. SQLite đúng 600 câu và 60 câu điểm liệt.
-3. Ảnh hiển thị.
-4. Tắt mạng → app vẫn học/thi được.
-5. Dataset version mới → update giữ progress/bookmark/exam history.
-6. Update hỏng giữa chừng → giữ version cũ.
+3. Ảnh câu hỏi hiển thị.
+4. Tắt mạng → học/thi vẫn hoạt động.
+5. Version mới → giữ progress/bookmark/exam history.
+6. Update lỗi → giữ version cũ.
 7. Same version + checksum khác → không overwrite.
-8. Settings → Runtime Diagnostics không có FAIL bất ngờ.
-9. Reset dữ liệu người dùng không xóa dataset/assets.
 
-## 7. Windows release candidate
+### Biển báo
+
+1. `VITE_TRAFFIC_SIGNS_MANIFEST_URL` độc lập với questions URL.
+2. First-run của catalog import `traffic_signs` mà không chạm `questions`.
+3. Search/filter từng biển hoạt động.
+4. Ảnh đọc từ `$APPDATA/traffic-sign-assets/<version>/`.
+5. Tắt mạng → catalog vẫn hoạt động.
+6. Update traffic-sign version không làm reload/reset 600 câu.
+7. Update question version không làm xóa traffic-sign catalog.
+
+### Chung
+
+- Settings → Runtime Diagnostics kiểm tra riêng hai endpoint/dataset.
+- Reset user progress không xóa bất kỳ production dataset nào.
+
+## 8. Windows release candidate
 
 ```powershell
 pnpm release:check
 pnpm release:windows:local
 ```
 
-Kiểm tra Windows 10/11: install, first launch, persistence, notification, installer upgrade và dữ liệu người dùng sau upgrade.
+Kiểm tra Windows 10/11: install, first launch, persistence, notification, installer upgrade và dữ liệu sau upgrade.
 
-Trước public distribution cần quyết định code signing. Binary auto-updater hiện chưa triển khai.
-
-## 8. Android bring-up
-
-Sau khi cài Android Studio/JDK/SDK/NDK/Rust Android targets:
+## 9. Android bring-up
 
 ```powershell
 pnpm tauri:android:init
 pnpm tauri:android:dev
 ```
 
-Verify SQL migration, AppData assets, Store, first-run/offline, Android Back, abandon-confirm, notification và responsive/touch.
+Verify SQL migration v2, hai AppData asset root, Store, first-run/offline, Android Back, notification và responsive/touch.
 
 ```powershell
 pnpm tauri:android:build:debug
@@ -156,47 +198,47 @@ pnpm release:android:apk:local
 pnpm release:android:aab:local
 ```
 
-Release APK/AAB còn cần signing/keystore.
+Release APK/AAB cần signing/keystore.
 
-## 9. Những phần cố ý chưa hoàn thành
+## 10. Blockers còn lại
 
-### DATA BLOCKER
+### DATA
 
 - production 600-question dataset;
-- manual unresolved answers;
-- visual image verification;
+- manual unresolved answers/images;
+- production traffic-sign catalog từng biển;
+- ảnh biển báo có provenance;
 - explanation đáng tin cậy.
 
-### DEPLOYMENT BLOCKER
+### DEPLOYMENT
 
-- production HTTPS host;
-- CSP exact host;
-- CORS hoặc native HTTP transport decision.
+- production R2/custom domain;
+- CORS;
+- CSP exact origin.
 
 ### LOCAL / DEVICE VERIFY
 
 - frontend/Rust/plugin build;
-- SQLite runtime integration;
+- SQLite migration v2;
+- first-run/update/offline của cả hai dataset;
 - Windows NSIS;
-- Android init/APK/AAB;
+- Android APK/AAB;
 - notification scheduling.
 
 ### OPTIONAL SAU 1.0
 
-- signed dataset manifest;
-- Windows code signing tùy kênh phân phối;
+- signed manifests;
+- Windows code signing;
 - binary auto-updater;
 - cloud sync/account/conflict resolution.
 
-## 10. Definition of Desktop release candidate
+## Definition of Desktop release candidate
 
 ```text
-600 câu verified
-+ 60 critical exact
-+ images verified
-+ production validator pass local
-+ remote package published
-+ first-run/offline/update verified
+600 questions verified + published
++ traffic-sign catalog verified + published (nếu включ vào 1.0)
++ two-manifest first-run/offline/update verified
 + frontend/Rust checks pass local
++ Runtime Diagnostics sạch lỗi production
 + NSIS install/upgrade verified
 ```
