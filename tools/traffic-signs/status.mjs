@@ -4,10 +4,13 @@ import path from "node:path";
 
 const root = process.cwd();
 const sourceDir = path.join(root, "data/traffic-signs/source");
+const rawDir = path.join(root, "data/traffic-signs/raw");
 const sourceManifestPath = path.join(sourceDir, "source-manifest.json");
 const processedPath = path.join(root, "data/traffic-signs/processed/traffic-signs.json");
 const assetsRoot = path.join(root, "data/traffic-signs/processed/assets");
-const candidatePath = path.join(root, "data/traffic-signs/raw/official-candidates.json");
+const officialCandidatePath = path.join(rawDir, "official-candidates.json");
+const referenceCandidatePath = path.join(rawDir, "reference-candidates.json");
+const manualReviewPath = path.join(rawDir, "manual-review.json");
 const publishedManifestPath = path.join(root, "dist/traffic-signs/manifest.json");
 const SHA_RE = /^[a-f0-9]{64}$/i;
 
@@ -53,7 +56,9 @@ function yesNo(value) {
 
 const source = readJson(sourceManifestPath);
 const processed = readJson(processedPath);
-const candidates = readJson(candidatePath);
+const officialCandidates = readJson(officialCandidatePath);
+const referenceCandidates = readJson(referenceCandidatePath);
+const manualReview = readJson(manualReviewPath);
 const published = readJson(publishedManifestPath);
 const legal = localEntryState(source?.legalBasis);
 const technical = localEntryState(source?.technicalSource);
@@ -65,7 +70,11 @@ const technicalVerified = Boolean(
 );
 
 const signs = Array.isArray(processed?.signs) ? processed.signs : [];
-const candidateSections = Array.isArray(candidates?.candidates) ? candidates.candidates : [];
+const officialCandidateSections = Array.isArray(officialCandidates?.candidates) ? officialCandidates.candidates : [];
+const referenceCandidateSections = Array.isArray(referenceCandidates?.candidates) ? referenceCandidates.candidates : [];
+const reviewRecords = Array.isArray(manualReview?.records) ? manualReview.records : [];
+const reviewedRecords = reviewRecords.filter((record) => record?.verified === true);
+const imageReviewPending = reviewRecords.filter((record) => typeof record?.image === "string" && record.image.trim() && record?.imageVerified !== true);
 const processedSourceSha = normalizeSha(processed?.sourceSha256);
 const processedProvenanceMatches = Boolean(
   technicalVerified && processedSourceSha && processedSourceSha === technical.declaredSha,
@@ -94,7 +103,11 @@ console.log(`Technical source reviewed    : ${yesNo(technicalVerified)}`);
 if (technical.exists && technical.declaredSha && !technical.hashMatches) {
   console.log(`Technical SHA mismatch       : declared=${technical.declaredSha} actual=${technical.actualSha}`);
 }
-console.log(`Official candidates          : ${candidateSections.length}`);
+console.log(`Official candidates          : ${officialCandidateSections.length}`);
+console.log(`Reference-only candidates    : ${referenceCandidateSections.length}`);
+console.log(`Manual review records        : ${reviewRecords.length}`);
+console.log(`Manual verified records      : ${reviewedRecords.length}`);
+console.log(`Image verification pending   : ${imageReviewPending.length}`);
 console.log(`Processed dataset            : ${yesNo(Boolean(processed))}`);
 if (processed?.__error) console.log(`Processed JSON error         : ${processed.__error}`);
 console.log(`Dataset version              : ${processed?.version ?? "-"}`);
@@ -107,21 +120,25 @@ console.log(`Published version            : ${published?.version ?? "-"}`);
 
 let next = "Run pnpm signs:source:download to fetch/hash the official promulgation document.";
 if (!technical.exists) {
-  next = `Obtain the full official QCVN 41:2024/BGTVT and place it at data/traffic-signs/source/${source?.technicalSource?.localFile ?? "qcvn-41-2024-bgvt-full.pdf"}.`;
+  next = `Obtain the full official QCVN 41:2024/BGTVT and place it at data/traffic-signs/source/${source?.technicalSource?.localFile ?? "qcvn-41-2024-bgvt-full.pdf"}. You may run signs:candidates:reference meanwhile for a non-production typing aid.`;
 } else if (!technicalVerified) {
   next = "Run pnpm signs:source:verify -- --reviewer <name> --official-url <official-full-source-url>.";
-} else if (candidateSections.length === 0) {
+} else if (officialCandidateSections.length === 0) {
   next = "Run pnpm signs:candidates:official to extract review candidates from the verified full QCVN PDF.";
+} else if (reviewRecords.length === 0) {
+  next = "Run pnpm signs:review:prepare, then fill/verify each record against the full official QCVN source.";
+} else if (reviewedRecords.length !== reviewRecords.length || imageReviewPending.length > 0) {
+  next = `Finish manual review: ${reviewRecords.length - reviewedRecords.length} record(s) unverified, ${imageReviewPending.length} image(s) unverified.`;
 } else if (!processed) {
-  next = "Review official candidates and create data/traffic-signs/processed/traffic-signs.json using only verified records.";
+  next = "Run pnpm signs:review:apply to build production traffic-signs.json from the verified review file.";
 } else if (!processedProvenanceMatches) {
-  next = "Fix traffic-signs.json sourceSha256/sourceDocument so they match the verified technical source exactly.";
+  next = "Fix traffic-signs.json provenance so it matches the verified technical source exactly.";
 } else if (signs.length === 0) {
   next = "Add verified traffic-sign records; empty catalogs cannot be published.";
 } else if (missingImages.length > 0) {
   next = `Add or fix ${missingImages.length} missing/unsafe referenced image file(s).`;
 } else if (!published) {
-  next = "Run pnpm signs:finalize to validate and publish the catalog.";
+  next = "Run pnpm signs:publish (or signs:finalize) to validate and publish the catalog.";
 } else {
   next = "Upload releases/<version>/ payload to R2 first, then upload manifest.json last.";
 }
