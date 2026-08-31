@@ -12,7 +12,7 @@ TOOLS_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TOOLS_DIR))
 
 from publish import publish  # noqa: E402
-from source_provenance import canonical_bundle_sha256  # noqa: E402
+from source_provenance import EXPECTED_GAZETTE_ISSUES, canonical_bundle_sha256  # noqa: E402
 
 VERSION = "2025.01"
 SOURCE_DOCUMENT = "QCVN 41:2024/BGTVT"
@@ -49,7 +49,7 @@ def write_verified_source(root: Path) -> tuple[Path, str]:
     source_dir = root / "source"
     source_dir.mkdir(parents=True)
     parts: list[dict] = []
-    for index, issue in enumerate(("1359+1360", "1361+1362", "1363+1364"), start=1):
+    for index, issue in enumerate(EXPECTED_GAZETTE_ISSUES, start=1):
         filename = f"part-{index:02d}.pdf"
         source_file = source_dir / filename
         source_file.write_bytes(f"verified fixture source part {index}".encode("utf-8"))
@@ -112,7 +112,7 @@ class TrafficSignsPublishTests(unittest.TestCase):
             self.assertEqual(manifest["assets"]["url"], f"releases/{VERSION}/traffic-sign-assets.zip")
             self.assertEqual(manifest["signCount"], 1)
             self.assertEqual(manifest["sourceSha256"], source_sha)
-            self.assertEqual(manifest["sourcePartCount"], 3)
+            self.assertEqual(manifest["sourcePartCount"], 5)
 
             with zipfile.ZipFile(asset_path) as archive:
                 self.assertEqual(archive.namelist(), ["signs/s-h-3.svg"])
@@ -167,6 +167,19 @@ class TrafficSignsPublishTests(unittest.TestCase):
             source.write_text(json.dumps(sample_dataset(source_sha)), encoding="utf-8")
 
             with self.assertRaisesRegex(ValueError, "part SHA-256 mismatch"):
+                publish(source, root / "assets", root / "dist", source_manifest)
+
+    def test_rejects_wrong_issue_sequence(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source_manifest, source_sha = write_verified_source(root)
+            manifest = json.loads(source_manifest.read_text(encoding="utf-8"))
+            manifest["technicalSource"]["parts"][0]["issue"] = "9999+9999"
+            source_manifest.write_text(json.dumps(manifest), encoding="utf-8")
+            source = root / "traffic-signs.json"
+            source.write_text(json.dumps(sample_dataset(source_sha)), encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "issue must be 1359\+1360"):
                 publish(source, root / "assets", root / "dist", source_manifest)
 
 
