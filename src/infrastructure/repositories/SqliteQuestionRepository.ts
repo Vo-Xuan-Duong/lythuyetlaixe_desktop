@@ -1,9 +1,14 @@
 import type { Answer, LicenseType, Question } from "../../domain/entities/question";
 import type { QuestionRepository } from "../../domain/repositories/QuestionRepository";
+import { resolveAssetUrl } from "../assets/RemoteAssetStore";
 import { getDatabase } from "../database/database";
 
 interface CountRow {
   count: number;
+}
+
+interface MetadataRow {
+  value: string;
 }
 
 interface QuestionRow {
@@ -48,12 +53,18 @@ export class SqliteQuestionRepository implements QuestionRepository {
 
     if (!rows[0]) return null;
 
-    const [answers, licenses] = await Promise.all([
+    const [answers, licenses, datasetVersion] = await Promise.all([
       this.loadAnswers([id]),
       this.loadLicenses([id]),
+      this.loadDatasetVersion(),
     ]);
 
-    return this.mapQuestion(rows[0], answers.get(id) ?? [], licenses.get(id) ?? []);
+    return this.mapQuestion(
+      rows[0],
+      answers.get(id) ?? [],
+      licenses.get(id) ?? [],
+      datasetVersion,
+    );
   }
 
   async listByCategory(categoryCode: string): Promise<Question[]> {
@@ -99,14 +110,30 @@ export class SqliteQuestionRepository implements QuestionRepository {
 
     if (ids.length === 0) return [];
 
-    const [answers, licenses] = await Promise.all([
+    const [answers, licenses, datasetVersion] = await Promise.all([
       this.loadAnswers(ids),
       this.loadLicenses(ids),
+      this.loadDatasetVersion(),
     ]);
 
-    return rows.map((row) =>
-      this.mapQuestion(row, answers.get(row.id) ?? [], licenses.get(row.id) ?? []),
+    return Promise.all(
+      rows.map((row) =>
+        this.mapQuestion(
+          row,
+          answers.get(row.id) ?? [],
+          licenses.get(row.id) ?? [],
+          datasetVersion,
+        ),
+      ),
     );
+  }
+
+  private async loadDatasetVersion(): Promise<string | null> {
+    const db = await getDatabase();
+    const rows = await db.select<MetadataRow[]>(
+      "SELECT value FROM dataset_metadata WHERE key = 'version' LIMIT 1",
+    );
+    return rows[0]?.value ?? null;
   }
 
   private async loadAnswers(ids: number[]): Promise<Map<number, Answer[]>> {
@@ -153,12 +180,23 @@ export class SqliteQuestionRepository implements QuestionRepository {
     return grouped;
   }
 
-  private mapQuestion(row: QuestionRow, answers: Answer[], licenses: LicenseType[]): Question {
+  private async mapQuestion(
+    row: QuestionRow,
+    answers: Answer[],
+    licenses: LicenseType[],
+    datasetVersion: string | null,
+  ): Promise<Question> {
+    const imagePath = row.image_path
+      ? datasetVersion
+        ? await resolveAssetUrl(datasetVersion, row.image_path)
+        : row.image_path
+      : undefined;
+
     return {
       id: row.id,
       categoryCode: row.category_code,
       content: row.content,
-      imagePath: row.image_path ?? undefined,
+      imagePath,
       critical: row.is_critical === 1,
       licenses,
       answers,
