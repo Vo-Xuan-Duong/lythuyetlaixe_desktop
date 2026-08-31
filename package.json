@@ -42,6 +42,7 @@
     "signs:source:download": "python tools/traffic-signs/download_source.py",
     "signs:source:verify": "python tools/traffic-signs/verify_technical_source.py",
     "signs:candidates:official": "python tools/traffic-signs/extract_official_candidates.py",
+    "signs:candidates:reference": "python tools/traffic-signs/extract_reference_candidates.py",
     "signs:status": "node tools/traffic-signs/status.mjs",
     "signs:validate": "node tools/traffic-signs/validate.mjs",
     "signs:publish": "pnpm signs:validate && python tools/traffic-signs/publish.py",
