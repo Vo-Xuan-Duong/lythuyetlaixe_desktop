@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNativeBackHandler } from "../../app/useNativeBackHandler";
 import type { Question } from "../../domain/entities/question";
 import type { QuestionProgress } from "../../domain/entities/progress";
 import { accuracyPercent, recordAnswerProgress } from "../../domain/services/learningProgress";
@@ -58,6 +59,8 @@ export function LearningSession({
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState<string>();
   const [operationError, setOperationError] = useState<string>();
+
+  useNativeBackHandler(onBack, { priority: 100 });
 
   useEffect(() => {
     setCurrentQuestionId(initialQuestionId);
