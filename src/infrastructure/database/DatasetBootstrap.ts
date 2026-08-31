@@ -33,7 +33,12 @@ export type DatasetBootstrapStatus =
       reason?: "remote-not-configured" | "first-download-failed";
     };
 
-const DATASET_MANIFEST_URL = import.meta.env.VITE_DATASET_MANIFEST_URL?.trim() ?? "";
+// VITE_DATASET_MANIFEST_URL remains a compatibility fallback for local builds
+// created before the question/sign datasets were split.
+const QUESTIONS_MANIFEST_URL =
+  import.meta.env.VITE_QUESTIONS_MANIFEST_URL?.trim() ||
+  import.meta.env.VITE_DATASET_MANIFEST_URL?.trim() ||
+  "";
 
 function normalizedSha256(value?: string | null): string {
   return normalizeSha256(value ?? "");
@@ -54,7 +59,7 @@ export async function bootstrapDataset(): Promise<DatasetBootstrapStatus> {
     };
   }
 
-  if (!DATASET_MANIFEST_URL) {
+  if (!QUESTIONS_MANIFEST_URL) {
     if (localState.ready && localState.version) {
       return {
         state: "ready",
@@ -68,18 +73,15 @@ export async function bootstrapDataset(): Promise<DatasetBootstrapStatus> {
     return {
       state: "error",
       reason: "remote-not-configured",
-      message: "Chưa cấu hình VITE_DATASET_MANIFEST_URL để tải bộ dữ liệu lần đầu.",
+      message: "Chưa cấu hình VITE_QUESTIONS_MANIFEST_URL để tải bộ 600 câu lần đầu.",
     };
   }
 
   let pendingAssetVersion: string | null = null;
 
   try {
-    const manifest = await fetchDatasetManifest(DATASET_MANIFEST_URL);
+    const manifest = await fetchDatasetManifest(QUESTIONS_MANIFEST_URL);
 
-    // Builds created before contentSha256 existed stored manifest.sha256 in
-    // sourceSha256. Only migrate when the exact remote checksum proves it is the
-    // legacy package hash; never guess an official PDF provenance hash.
     if (
       localState.ready &&
       localState.version === manifest.version &&
@@ -111,9 +113,6 @@ export async function bootstrapDataset(): Promise<DatasetBootstrapStatus> {
       };
     }
 
-    // A legacy local package with valid PDF provenance but no contentSha256 can
-    // be safely re-downloaded/revalidated once to establish distribution
-    // integrity. Other same-version mismatches stay immutable.
     if (sameVersion && !legacyProvenanceMatches && (!sameDatasetChecksum || !sameAssetChecksum)) {
       return {
         state: "ready",
@@ -121,7 +120,7 @@ export async function bootstrapDataset(): Promise<DatasetBootstrapStatus> {
         importStatus: "up-to-date",
         source: "local-cache",
         warning:
-          "Package remote đã thay đổi nhưng không tăng version, hoặc local package chưa có checksum/provenance đủ để xác minh. Ứng dụng giữ nguyên version local để bảo toàn tính bất biến.",
+          "Package 600 câu remote đã thay đổi nhưng không tăng version, hoặc local package chưa có checksum/provenance đủ để xác minh. Ứng dụng giữ nguyên version local để bảo toàn tính bất biến.",
       };
     }
 
@@ -137,7 +136,7 @@ export async function bootstrapDataset(): Promise<DatasetBootstrapStatus> {
         manifest.assets.url,
         manifest.assets.sha256,
         manifest.assets.sizeBytes,
-        `asset package ${manifest.version}`,
+        `question asset package ${manifest.version}`,
         180_000,
         MAX_ASSET_ARCHIVE_BYTES,
       );
@@ -171,7 +170,7 @@ export async function bootstrapDataset(): Promise<DatasetBootstrapStatus> {
       importStatus: result.status,
       source: "remote",
       warning: legacyProvenanceMatches
-        ? "Đã revalidate package local legacy và bổ sung content checksum."
+        ? "Đã revalidate package 600 câu local legacy và bổ sung content checksum."
         : undefined,
     };
   } catch (error) {
@@ -186,14 +185,14 @@ export async function bootstrapDataset(): Promise<DatasetBootstrapStatus> {
         importStatus: "up-to-date",
         source: "local-cache",
         offline: true,
-        warning: `Không thể cập nhật dữ liệu: ${error instanceof Error ? error.message : String(error)}`,
+        warning: `Không thể cập nhật bộ 600 câu: ${error instanceof Error ? error.message : String(error)}`,
       };
     }
 
     return {
       state: "error",
       reason: "first-download-failed",
-      message: `Không thể tải bộ dữ liệu lần đầu: ${error instanceof Error ? error.message : String(error)}`,
+      message: `Không thể tải bộ 600 câu lần đầu: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
 }
